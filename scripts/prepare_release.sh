@@ -46,6 +46,7 @@ copy_path "$ROOT_DIR/tests" "$STAGE_DIR/tests"
 copy_path "$ROOT_DIR/scripts" "$STAGE_DIR/scripts"
 copy_path "$ROOT_DIR/.codebase-memory" "$STAGE_DIR/.codebase-memory"
 copy_path "$ROOT_DIR/README.md" "$STAGE_DIR/README.md"
+copy_path "$ROOT_DIR/docs" "$STAGE_DIR/docs"
 copy_path "$ROOT_DIR/pyproject.toml" "$STAGE_DIR/pyproject.toml"
 copy_path "$ROOT_DIR/requirements.txt" "$STAGE_DIR/requirements.txt"
 copy_path "$ROOT_DIR/.gitignore" "$STAGE_DIR/.gitignore"
@@ -58,4 +59,16 @@ chmod +x "$STAGE_DIR"/scripts/*.sh
 
 ARCHIVE="$DIST_DIR/impact-codebase-$VERSION-$PLATFORM.tar.gz"
 (cd "$RELEASE_ROOT" && tar czf "$ARCHIVE" "impact-codebase-$VERSION")
+python3 - "$ARCHIVE" <<'PY'
+import hashlib
+import sys
+from pathlib import Path
+
+archive = Path(sys.argv[1])
+digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+archive.with_suffix(archive.suffix + ".sha256").write_text(
+    f"{digest}  {archive.name}\n",
+    encoding="utf-8",
+)
+PY
 printf 'Created %s\n' "$ARCHIVE"

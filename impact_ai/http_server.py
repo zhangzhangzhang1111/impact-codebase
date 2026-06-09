@@ -1,5 +1,6 @@
 import json
 import inspect
+import os
 import signal
 import threading
 from dataclasses import asdict
@@ -2169,7 +2170,9 @@ def _analyze_with_progress(analyzer: Analyzer, request: ImpactAnalysisRequest, p
 def main() -> None:
     from impact_ai.runtime import create_configured_server
 
-    server = create_configured_server(("127.0.0.1", 8080))
+    host = os.environ.get("IMPACT_AI_HOST", "127.0.0.1")
+    port = int(os.environ.get("IMPACT_AI_PORT", "8080"))
+    server = create_configured_server((host, port))
     stopping = False
 
     def stop_server(_signum, _frame):
@@ -2180,7 +2183,7 @@ def main() -> None:
     signal.signal(signal.SIGINT, stop_server)
     signal.signal(signal.SIGTERM, stop_server)
 
-    print("Impact Analysis AI listening on http://127.0.0.1:8080")
+    print(f"Impact Analysis AI listening on http://{host}:{port}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

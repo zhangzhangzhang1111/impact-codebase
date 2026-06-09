@@ -73,6 +73,8 @@ Environment:
 - `IMPACT_AI_MANAGE_CODEBASE_MEMORY`: manage the `codebase-memory-mcp` process with the HTTP service, defaults to `true`; set `false` when another supervisor owns it.
 - `CODEBASE_MEMORY_ENABLE_UI`: enable the codebase-memory graph UI before launching the managed process, defaults to `true`.
 - `CODEBASE_MEMORY_UI_PORT`: codebase-memory graph UI port, defaults to `9749`.
+- `IMPACT_AI_HOST`: HTTP bind host, defaults to `127.0.0.1`; use `0.0.0.0` for LAN or container deployment.
+- `IMPACT_AI_PORT`: HTTP bind port, defaults to `8080`.
 - `IMPACT_AI_WORKSPACE_ROOT`: cloned repository workspace, defaults to `.impact-ai/repos`.
 - `IMPACT_AI_HISTORY_PATH`: JSON analysis history path, defaults to `.impact-ai/history.json`.
 - `IMPACT_AI_PROFILE_ROOT`: project profile root, defaults to `profiles`.
@@ -93,6 +95,12 @@ Run:
 ```
 
 Then open `http://127.0.0.1:8080`.
+
+For LAN or container deployment:
+
+```bash
+IMPACT_AI_HOST=0.0.0.0 IMPACT_AI_PORT=8080 ./scripts/run.sh
+```
 
 When process management is enabled, starting the HTTP service also starts a managed `codebase-memory-mcp` child process and configures the graph UI at `http://localhost:9749`. Stopping the HTTP service closes the child process.
 
@@ -134,6 +142,8 @@ The archive is written to `dist/impact-codebase-{version}-{platform}.tar.gz`. It
 ```bash
 ./scripts/run.sh
 ```
+
+The HTTP API protocol is documented in `docs/http-api.md`.
 
 Test:
 
