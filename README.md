@@ -1,160 +1,233 @@
-# Impact Analysis AI
+# Impact Codebase
 
-HTTP service for code-change impact analysis. The service is designed to accept a git URL, branch, before/after commits, and project name, then combine changed functions with a two-hop code knowledge graph, AI analysis, review standards, and generated test cases.
+Impact Codebase 是一个面向 AI 编程助手的代码改动影响面分析服务。它通过 HTTP 接收 Git 仓库地址、分支、修改前后 commit、项目名称和模型配置，自动提取 Git Diff 中的改动函数，结合 `codebase-memory-mcp` 代码知识图谱追踪调用链路，再调用 AI 生成中文影响面分析、代码评审发现和测试用例建议。
 
-Current slice:
+## 核心能力
 
-- AI provider catalog for mainstream global and China-market providers.
-- Token budget helper for prompt chunking and output reservation.
-- Per-project `business.md` loader under a profile root.
-- Default review standards for common languages.
-- Analysis pipeline core with pluggable knowledge-graph and AI clients.
-- Git diff function extraction for added, modified, and deleted functions across Python, JavaScript, TypeScript, Java, Go, Rust, PHP, C#, Kotlin, C++, Ruby, and Swift commit ranges.
-- Each changed function includes `change_type` (`added`, `modified`, or `deleted`) so impact analysis, review findings, and test generation can distinguish creation, behavior changes, and removals.
-- codebase-memory-mcp knowledge graph adapter contract for clone, index, and two-hop call tracing.
-- Git checkout validation ensures the requested branch exists, both commits exist, `before_commit` reaches `after_commit`, and repository indexing runs against the exact `after_commit` snapshot rather than a later branch tip.
-- Deleted functions are traced against a separate `before_commit` codebase-memory index, while added and modified functions are traced against the `after_commit` index.
-- Reused project workspaces synchronize `remote.origin.url` with the submitted git URL before fetching, so repeated analyses with the same project name do not silently use an old repository.
-- AI client support for OpenAI-compatible chat completions, Anthropic Messages, and Gemini GenerateContent APIs.
-- HTTP dashboard shell with provider catalog, queued/completed analysis history, and persisted analysis results.
-- Project-level `business.md` management through HTTP APIs and the dashboard.
-- Review standards catalog through HTTP APIs and the dashboard.
-- Default runtime assembly from environment variables. Running `python3 -m impact_ai.http_server` wires the codebase-memory CLI client, git checkout workspace, profile loader, token budget, and AI client.
-- Async HTTP analysis execution with persisted progress stages. The dashboard shows the full stage chain, including repository checkout, indexing, diff extraction, call graph tracing, prompt building, AI request/response, and final completion or failure.
-- Dashboard analysis detail expands changed functions, inbound callers, outbound callees, review findings, structured review findings, generated tests, structured test cases, and token usage for completed jobs.
-- Token budget telemetry in every analysis result, including prompt chunk count, estimated input tokens per chunk, reserved output tokens, and max output tokens sent to the AI provider.
+- 支持通过看板创建、查看和追踪代码影响面分析任务。
+- 支持 Git 仓库自动克隆/更新，并校验分支、commit 和祖先关系。
+- 支持提取新增、修改、删除函数，覆盖 Python、JavaScript、TypeScript、Java、Go、Rust、PHP、C#、Kotlin、C++、Ruby、Swift、Lua 等常见语言。
+- 集成 `DeusData/codebase-memory-mcp`，对改动函数追踪入向调用方和出向被调方。
+- 支持分析时配置调用链路层级，当前限制为 `1..5`，默认 `2`。
+- 支持 `codebase-memory-mcp` 不完整时使用源码扫描补齐调用关系。
+- 支持项目级 `business.md` 业务说明，作为 AI 分析上下文。
+- 支持默认代码评审规范，并可在页面按语言修改。
+- 支持模型配置、默认模型选择和模型可用性测试。
+- 支持分析进度条、阶段日志、失败原因和历史结果持久化。
+- 输出中文影响面分析、结构化评审发现、结构化测试用例、测试标签和 token 使用情况。
 
-Important extension points:
+## AI 模型支持
 
-- `impact_ai.codebase_memory_graph.CodebaseMemoryKnowledgeGraph` combines local git checkout, changed-function extraction, repository indexing, and two-hop graph tracing through a `CodebaseMemoryClient`.
-- `impact_ai.codebase_memory_cli.CodebaseMemoryCliClient` invokes `codebase-memory-mcp cli index_repository` with `repo_path`, `project_name`, and index mode, then calls `codebase-memory-mcp cli trace_path`; trace normalization removes the changed function itself from caller/callee lists.
-- `impact_ai.ai_client.OpenAICompatibleClient` calls providers using the common `/chat/completions` API shape and expects JSON object content.
-- `impact_ai.analysis.ImpactAnalyzer` is the core orchestration layer used by HTTP when an analyzer is supplied to `create_server(..., analyzer=...)`.
-- `impact_ai.runtime.create_configured_server` starts the default server in async mode so the dashboard can poll job progress and history.
+当前内置国内外主流模型提供商：
 
-Progress stages:
+- OpenAI
+- Anthropic Claude
+- Google Gemini
+- DeepSeek
+- Alibaba Qwen
+- Zhipu GLM
+- Moonshot Kimi
+- ByteDance Doubao
+- Tencent Hunyuan
+- Baidu ERNIE
 
-- Job lifecycle: `queued`, `running`, `completed`, `failed`.
-- Analyzer stages: `changed_functions`, `two_hop_call_graph`, `prompt_build`, `ai_request`, `ai_response`.
-- codebase-memory graph stages: `checkout_repository`, `index_repository`, `extract_changed_functions`, `trace_call_graph`.
+模型配置可通过页面维护，也可以通过环境变量覆盖。页面支持保存 API Key、Base URL、模型名，设置默认模型，并点击测试按钮验证模型是否可用。
 
-Token limits:
+## 内网部署说明
 
-- The analyzer uses each provider's configured `max_input_tokens` and `max_output_tokens` unless explicit `IMPACT_AI_*` token limits are provided; explicit limits are still capped at the selected provider's catalog limits.
-- Input prompts are split into chunks after reserving output space, so each AI request stays within the available input budget.
-- Oversized context tokens, such as minified code or very long diff lines without whitespace, are split at character boundaries to keep each prompt chunk within budget.
-- Every prompt chunk is a self-contained JSON envelope with task, project metadata, output contract, and chunk metadata, rather than a raw slice of partial JSON.
-- AI calls receive `max_tokens` equal to the configured max output budget.
-- AI response parsing accepts strict JSON objects and common JSON wrapped in Markdown code fences or surrounding explanatory text.
-- Results include `token_usage` with `prompt_chunks`, `chunk_input_tokens`, `reserved_output_tokens`, `max_input_tokens`, and `max_output_tokens`; the dashboard displays the chunk count and max output budget in analysis history.
+仓库已经内置 `codebase-memory-mcp v0.7.0` 的 Linux/macOS 运行时归档，内网机器不需要再联网下载图谱引擎。
 
-Analysis result shape:
+内置归档位置：
 
-- `review_findings` and `test_cases` remain string lists for simple clients and backward compatibility.
-- `structured_review_findings` preserves AI-provided review objects with fields such as function, standard, severity, finding, and impacted callers.
-- `structured_test_cases` preserves AI-provided test case objects with fields such as name, type, target, and covered behavior.
+```text
+vendor/codebase-memory-mcp/darwin-arm64/codebase-memory-mcp.tar.gz
+vendor/codebase-memory-mcp/darwin-amd64/codebase-memory-mcp.tar.gz
+vendor/codebase-memory-mcp/linux-amd64/codebase-memory-mcp.tar.gz
+vendor/codebase-memory-mcp/linux-arm64/codebase-memory-mcp.tar.gz
+```
 
-Business context:
+`./scripts/run.sh` 会根据当前系统自动选择对应归档，解压到 `.impact-ai/bin/` 后启动服务。
 
-- `GET /api/projects/{project_name}/business-context` returns the project's configured `business.md` content.
-- `PUT /api/projects/{project_name}/business-context` writes `{"business_context": "..."}` to `{IMPACT_AI_PROFILE_ROOT}/{safe_project_name}/business.md`; project names are normalized to a safe directory slug so slashes, spaces, and traversal-like segments cannot escape the profile root.
-- The dashboard includes a Business Context editor so project-specific domain rules can be maintained before analysis runs.
+运行依赖：
 
-Review standards:
+- Python 3.12 或更高版本
+- Git
+- tar
 
-- `GET /api/review-standards` returns all default language review standards.
-- `GET /api/review-standards/{language}` returns a single language standard, or the generic fallback for unknown languages.
-- The dashboard includes a Review Standards table so reviewers can inspect the default checks before running analysis.
+Python 服务侧当前只使用标准库，`requirements.txt` 仅作为部署脚本的稳定依赖入口。
 
-Environment:
+## 快速启动
 
-- `CODEBASE_MEMORY_MCP_BIN`: codebase-memory binary path, defaults to `codebase-memory-mcp`.
-- `CODEBASE_MEMORY_INDEX_MODE`: codebase-memory index mode, defaults to `fast`; set `full` for full indexing when needed.
-- `IMPACT_AI_MANAGE_CODEBASE_MEMORY`: manage the `codebase-memory-mcp` process with the HTTP service, defaults to `true`; set `false` when another supervisor owns it.
-- `CODEBASE_MEMORY_ENABLE_UI`: enable the codebase-memory graph UI before launching the managed process, defaults to `true`.
-- `CODEBASE_MEMORY_UI_PORT`: codebase-memory graph UI port, defaults to `9749`.
-- `IMPACT_AI_HOST`: HTTP bind host, defaults to `127.0.0.1`; use `0.0.0.0` for LAN or container deployment.
-- `IMPACT_AI_PORT`: HTTP bind port, defaults to `8080`.
-- `IMPACT_AI_WORKSPACE_ROOT`: cloned repository workspace, defaults to `.impact-ai/repos`.
-- `IMPACT_AI_HISTORY_PATH`: JSON analysis history path, defaults to `.impact-ai/history.json`.
-- `IMPACT_AI_PROFILE_ROOT`: project profile root, defaults to `profiles`.
-- `IMPACT_AI_MAX_INPUT_TOKENS`, `IMPACT_AI_MAX_OUTPUT_TOKENS`, `IMPACT_AI_RESERVED_OUTPUT_TOKENS`: optional fixed token budget override.
-- Provider credentials, base URLs, and models are configurable with each provider's `*_API_KEY`, `*_BASE_URL`, and `*_MODEL` variables. Examples: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_MODEL`, `QWEN_MODEL`, `ANTHROPIC_MODEL`, and `GEMINI_MODEL`.
-- `GET /api/providers` and the dashboard Providers table expose each provider's API key, base URL, and model environment variable names.
-
-AI provider API styles:
-
-- OpenAI-compatible `/chat/completions`: OpenAI, DeepSeek, Qwen, Zhipu GLM, Moonshot Kimi, Doubao, Tencent Hunyuan, Baidu ERNIE.
-- Anthropic native Messages API: Anthropic Claude.
-- Gemini native `models/{model}:generateContent` API: Google Gemini.
-
-Run:
+本机启动：
 
 ```bash
 ./scripts/run.sh
 ```
 
-Then open `http://127.0.0.1:8080`.
+打开：
 
-For LAN or container deployment:
+```text
+http://127.0.0.1:8080
+```
+
+内网或容器部署时监听所有网卡：
 
 ```bash
 IMPACT_AI_HOST=0.0.0.0 IMPACT_AI_PORT=8080 ./scripts/run.sh
 ```
 
-When process management is enabled, starting the HTTP service also starts a managed `codebase-memory-mcp` child process and configures the graph UI at `http://localhost:9749`. Stopping the HTTP service closes the child process.
+启动 HTTP 服务时默认会一起启动托管的 `codebase-memory-mcp` 子进程；关闭 HTTP 服务时也会停止该子进程。
 
-Runtime dependencies:
+## Release 产物
 
-- Python 3.12 or newer.
-- Git.
-- `codebase-memory-mcp`.
-
-The project itself uses only the Python standard library. `scripts/run.sh` first looks for a bundled platform archive at `vendor/codebase-memory-mcp/{platform}/codebase-memory-mcp.tar.gz`, extracts it into `.impact-ai/bin/`, then falls back to `CODEBASE_MEMORY_MCP_BIN`, then to `codebase-memory-mcp` on `PATH`.
-
-Bundled `codebase-memory-mcp` v0.7.0 archives:
-
-- `vendor/codebase-memory-mcp/darwin-arm64/codebase-memory-mcp.tar.gz`
-- `vendor/codebase-memory-mcp/darwin-amd64/codebase-memory-mcp.tar.gz`
-- `vendor/codebase-memory-mcp/linux-amd64/codebase-memory-mcp.tar.gz`
-- `vendor/codebase-memory-mcp/linux-arm64/codebase-memory-mcp.tar.gz`
-
-Install or refresh `codebase-memory-mcp` for the current Linux/macOS platform:
-
-```bash
-./scripts/install_codebase_memory.sh
-```
-
-By default this downloads the latest official release binary into `vendor/codebase-memory-mcp/{platform}/`. To pin a version:
-
-```bash
-CODEBASE_MEMORY_VERSION=v0.7.0 ./scripts/install_codebase_memory.sh
-```
-
-Build a downloadable package for the current platform:
+生成可直接分发的 release 包：
 
 ```bash
 ./scripts/prepare_release.sh
 ```
 
-The archive is written to `dist/impact-codebase-{version}-{platform}.tar.gz`. It includes source code, tests, scripts, `.codebase-memory` seed artifact, and the vendored `codebase-memory-mcp` archives for Linux/macOS. After extracting the archive on Linux/macOS:
+产物输出到：
+
+```text
+dist/impact-codebase-{commit}-{platform}.tar.gz
+dist/impact-codebase-{commit}-{platform}.tar.gz.sha256
+```
+
+release 包包含：
+
+- 源码和测试
+- 中文 README
+- HTTP API 协议文档
+- 启动和依赖脚本
+- `.codebase-memory` 初始图谱产物
+- Linux/macOS 四个平台的 `codebase-memory-mcp` 运行时归档
+
+解压后运行：
 
 ```bash
 ./scripts/run.sh
 ```
 
-The HTTP API protocol is documented in `docs/http-api.md`.
+校验包完整性：
 
-Test:
+```bash
+sha256sum -c impact-codebase-{commit}-{platform}.tar.gz.sha256
+```
+
+macOS 可使用：
+
+```bash
+shasum -a 256 -c impact-codebase-{commit}-{platform}.tar.gz.sha256
+```
+
+## 常用环境变量
+
+| 变量 | 说明 | 默认值 |
+|---|---|---|
+| `IMPACT_AI_HOST` | HTTP 监听地址 | `127.0.0.1` |
+| `IMPACT_AI_PORT` | HTTP 监听端口 | `8080` |
+| `IMPACT_AI_WORKSPACE_ROOT` | 被分析仓库克隆目录 | `.impact-ai/repos` |
+| `IMPACT_AI_HISTORY_PATH` | 分析历史 JSON 文件 | `.impact-ai/history.json` |
+| `IMPACT_AI_MODEL_CONFIG_PATH` | 模型配置 JSON 文件 | `.impact-ai/model_config.json` |
+| `IMPACT_AI_REVIEW_STANDARDS_PATH` | 评审规范 JSON 文件 | `.impact-ai/review_standards.json` |
+| `IMPACT_AI_PROFILE_ROOT` | 项目业务说明目录 | `profiles` |
+| `IMPACT_AI_MANAGE_CODEBASE_MEMORY` | 是否随服务管理 `codebase-memory-mcp` 进程 | `true` |
+| `CODEBASE_MEMORY_MCP_BIN` | 指定 `codebase-memory-mcp` 可执行文件 | 自动从 `vendor/` 解压 |
+| `CODEBASE_MEMORY_INDEX_MODE` | 图谱索引模式 | `fast` |
+| `CODEBASE_MEMORY_CACHE_DIR` | 图谱缓存目录 | `.impact-ai/codebase-memory-cache` |
+| `CODEBASE_MEMORY_ENABLE_UI` | 是否启用图谱 UI 配置 | `true` |
+| `CODEBASE_MEMORY_UI_PORT` | 图谱 UI 端口 | `9749` |
+
+Token 预算覆盖：
+
+```text
+IMPACT_AI_MAX_INPUT_TOKENS
+IMPACT_AI_MAX_OUTPUT_TOKENS
+IMPACT_AI_RESERVED_OUTPUT_TOKENS
+```
+
+模型环境变量示例：
+
+```text
+OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL
+DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL / DEEPSEEK_MODEL
+QWEN_API_KEY / QWEN_BASE_URL / QWEN_MODEL
+ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL / ANTHROPIC_MODEL
+GEMINI_API_KEY / GEMINI_BASE_URL / GEMINI_MODEL
+```
+
+## HTTP API 文档
+
+完整接口协议见：
+
+```text
+docs/http-api.md
+```
+
+核心接口：
+
+- `GET /health`：健康检查。
+- `POST /api/analyses`：创建分析任务。
+- `GET /api/analyses`：查询分析历史。
+- `GET /api/analyses/{job_id}`：查询分析详情和报告结果。
+- `GET /api/providers`：查询模型提供商列表。
+- `GET /api/model-configs`：查询模型配置。
+- `PUT /api/model-configs/{provider_id}`：保存模型配置。
+- `POST /api/model-configs/default`：设置默认模型。
+- `POST /api/model-configs/{provider_id}/test`：测试模型配置是否可用。
+- `GET /api/review-standards`：查询评审规范。
+- `PUT /api/review-standards/{language}`：保存语言评审规范。
+- `GET /api/projects/{project_name}/business-context`：查询项目业务说明。
+- `PUT /api/projects/{project_name}/business-context`：保存项目业务说明。
+
+创建分析示例：
+
+```bash
+curl -sS http://127.0.0.1:8080/api/analyses \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "git_url": "https://github.com/Kong/kong.git",
+    "branch": "master",
+    "before_commit": "2eb7511",
+    "after_commit": "9ee35fd",
+    "project_name": "Kong-kong",
+    "provider_id": "deepseek",
+    "call_graph_depth": 2
+  }'
+```
+
+## 分析流程
+
+1. 拉取或更新 Git 仓库。
+2. 校验分支、修改前 commit、修改后 commit 和提交关系。
+3. 在对应 commit 快照上构建 `codebase-memory-mcp` 知识图谱。
+4. 从 Git Diff 中提取改动函数。
+5. 根据配置的调用链路层级追踪入向/出向调用关系。
+6. 合并项目业务说明和语言评审规范。
+7. 按模型 token 上限切分提示词。
+8. 调用 AI 模型生成影响面分析、评审发现和测试用例。
+9. 在看板展示进度、日志、失败原因和历史报告。
+
+## 测试
+
+运行全部单元测试：
 
 ```bash
 python3 -m unittest discover -s tests
 ```
 
-Optional real codebase-memory CLI smoke:
+运行真实 `codebase-memory-mcp` CLI 冒烟测试：
 
 ```bash
 RUN_CODEBASE_MEMORY_CLI_INTEGRATION=1 python3 -m unittest tests/test_codebase_memory_cli_integration.py
 ```
 
-The smoke uses the real `codebase-memory-mcp` binary and may need permission to write the tool's default persistent graph storage outside the project workspace.
+## 当前版本
+
+当前 release tag：
+
+```text
+v0.1.0
+```
+
+最新内网可部署代码已经包含在 `main` 分支和 `v0.1.0` tag 中。
