@@ -1,0 +1,2 @@
+# Impact Analysis AI currently uses only the Python standard library.
+# Keep this file so deployment scripts have a stable dependency hook.

@@ -10,4 +10,7 @@ venv/
 env/
 
 .impact-ai/
+dist/
+release/
+vendor/codebase-memory-mcp/
 *.log

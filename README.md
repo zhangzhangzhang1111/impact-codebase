@@ -89,12 +89,44 @@ AI provider API styles:
 Run:
 
 ```bash
-python3 -m impact_ai.http_server
+./scripts/run.sh
 ```
 
 Then open `http://127.0.0.1:8080`.
 
 When process management is enabled, starting the HTTP service also starts a managed `codebase-memory-mcp` child process and configures the graph UI at `http://localhost:9749`. Stopping the HTTP service closes the child process.
+
+Runtime dependencies:
+
+- Python 3.12 or newer.
+- Git.
+- `codebase-memory-mcp`.
+
+The project itself uses only the Python standard library. `scripts/run.sh` first looks for a bundled platform binary at `vendor/codebase-memory-mcp/{platform}/codebase-memory-mcp`, then falls back to `CODEBASE_MEMORY_MCP_BIN`, then to `codebase-memory-mcp` on `PATH`.
+
+Install or refresh `codebase-memory-mcp` for the current Linux/macOS platform:
+
+```bash
+./scripts/install_codebase_memory.sh
+```
+
+By default this downloads the latest official release binary into `vendor/codebase-memory-mcp/{platform}/`. To pin a version:
+
+```bash
+CODEBASE_MEMORY_VERSION=v0.7.0 ./scripts/install_codebase_memory.sh
+```
+
+Build a downloadable package for the current platform:
+
+```bash
+./scripts/prepare_release.sh
+```
+
+The archive is written to `dist/impact-codebase-{version}-{platform}.tar.gz`. It includes source code, tests, scripts, `.codebase-memory` seed artifact, and the current platform's `codebase-memory-mcp` binary when one is available locally. After extracting the archive on a matching Linux/macOS platform:
+
+```bash
+./scripts/run.sh
+```
 
 Test:
 
