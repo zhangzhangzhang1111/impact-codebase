@@ -12,5 +12,5 @@ env/
 .impact-ai/
 dist/
 release/
-vendor/codebase-memory-mcp/
+vendor/codebase-memory-mcp/*/codebase-memory-mcp
 *.log

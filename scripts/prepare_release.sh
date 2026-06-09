@@ -49,23 +49,11 @@ copy_path "$ROOT_DIR/README.md" "$STAGE_DIR/README.md"
 copy_path "$ROOT_DIR/pyproject.toml" "$STAGE_DIR/pyproject.toml"
 copy_path "$ROOT_DIR/requirements.txt" "$STAGE_DIR/requirements.txt"
 copy_path "$ROOT_DIR/.gitignore" "$STAGE_DIR/.gitignore"
-
-if [ -n "${CODEBASE_MEMORY_MCP_BIN:-}" ]; then
-  CODEBASE_BIN=$CODEBASE_MEMORY_MCP_BIN
-elif command -v codebase-memory-mcp >/dev/null 2>&1; then
-  CODEBASE_BIN=$(command -v codebase-memory-mcp)
-else
-  CODEBASE_BIN=""
-fi
-
-if [ -n "$CODEBASE_BIN" ] && [ -x "$CODEBASE_BIN" ]; then
-  mkdir -p "$STAGE_DIR/vendor/codebase-memory-mcp/$PLATFORM"
-  cp "$CODEBASE_BIN" "$STAGE_DIR/vendor/codebase-memory-mcp/$PLATFORM/codebase-memory-mcp"
-  chmod +x "$STAGE_DIR/vendor/codebase-memory-mcp/$PLATFORM/codebase-memory-mcp"
-fi
+copy_path "$ROOT_DIR/vendor" "$STAGE_DIR/vendor"
 
 find "$STAGE_DIR" -name '__pycache__' -type d -prune -exec rm -rf {} +
 find "$STAGE_DIR" -name '*.pyc' -type f -delete
+find "$STAGE_DIR/vendor/codebase-memory-mcp" -path '*/codebase-memory-mcp' -type f -delete 2>/dev/null || true
 chmod +x "$STAGE_DIR"/scripts/*.sh
 
 ARCHIVE="$DIST_DIR/impact-codebase-$VERSION-$PLATFORM.tar.gz"

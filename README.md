@@ -102,7 +102,14 @@ Runtime dependencies:
 - Git.
 - `codebase-memory-mcp`.
 
-The project itself uses only the Python standard library. `scripts/run.sh` first looks for a bundled platform binary at `vendor/codebase-memory-mcp/{platform}/codebase-memory-mcp`, then falls back to `CODEBASE_MEMORY_MCP_BIN`, then to `codebase-memory-mcp` on `PATH`.
+The project itself uses only the Python standard library. `scripts/run.sh` first looks for a bundled platform archive at `vendor/codebase-memory-mcp/{platform}/codebase-memory-mcp.tar.gz`, extracts it into `.impact-ai/bin/`, then falls back to `CODEBASE_MEMORY_MCP_BIN`, then to `codebase-memory-mcp` on `PATH`.
+
+Bundled `codebase-memory-mcp` v0.7.0 archives:
+
+- `vendor/codebase-memory-mcp/darwin-arm64/codebase-memory-mcp.tar.gz`
+- `vendor/codebase-memory-mcp/darwin-amd64/codebase-memory-mcp.tar.gz`
+- `vendor/codebase-memory-mcp/linux-amd64/codebase-memory-mcp.tar.gz`
+- `vendor/codebase-memory-mcp/linux-arm64/codebase-memory-mcp.tar.gz`
 
 Install or refresh `codebase-memory-mcp` for the current Linux/macOS platform:
 
@@ -122,7 +129,7 @@ Build a downloadable package for the current platform:
 ./scripts/prepare_release.sh
 ```
 
-The archive is written to `dist/impact-codebase-{version}-{platform}.tar.gz`. It includes source code, tests, scripts, `.codebase-memory` seed artifact, and the current platform's `codebase-memory-mcp` binary when one is available locally. After extracting the archive on a matching Linux/macOS platform:
+The archive is written to `dist/impact-codebase-{version}-{platform}.tar.gz`. It includes source code, tests, scripts, `.codebase-memory` seed artifact, and the vendored `codebase-memory-mcp` archives for Linux/macOS. After extracting the archive on Linux/macOS:
 
 ```bash
 ./scripts/run.sh

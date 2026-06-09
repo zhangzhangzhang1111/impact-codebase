@@ -28,11 +28,20 @@ platform_id() {
 
 need_cmd curl
 need_cmd chmod
+need_cmd tar
 
 PLATFORM=$(platform_id)
 TARGET_DIR="$INSTALL_DIR/$PLATFORM"
 TARGET_BIN="$TARGET_DIR/codebase-memory-mcp"
-ASSET="codebase-memory-mcp-$PLATFORM"
+TARGET_ARCHIVE="$TARGET_DIR/codebase-memory-mcp.tar.gz"
+
+case "$PLATFORM" in
+  linux-amd64) ASSET="codebase-memory-mcp-linux-amd64.tar.gz" ;;
+  linux-arm64) ASSET="codebase-memory-mcp-linux-arm64.tar.gz" ;;
+  darwin-amd64) ASSET="codebase-memory-mcp-darwin-amd64.tar.gz" ;;
+  darwin-arm64) ASSET="codebase-memory-mcp-darwin-arm64.tar.gz" ;;
+  *) fail "unsupported platform: $PLATFORM" ;;
+esac
 
 if [ "$VERSION" = "latest" ]; then
   URL="https://github.com/DeusData/codebase-memory-mcp/releases/latest/download/$ASSET"
@@ -42,7 +51,9 @@ fi
 
 mkdir -p "$TARGET_DIR"
 printf 'Downloading %s\n' "$URL"
-curl -fL "$URL" -o "$TARGET_BIN"
+curl -fL "$URL" -o "$TARGET_ARCHIVE"
+tar xzf "$TARGET_ARCHIVE" -C "$TARGET_DIR" codebase-memory-mcp
 chmod +x "$TARGET_BIN"
 "$TARGET_BIN" --version
-printf 'Installed to %s\n' "$TARGET_BIN"
+printf 'Installed archive to %s\n' "$TARGET_ARCHIVE"
+printf 'Extracted binary to %s\n' "$TARGET_BIN"
