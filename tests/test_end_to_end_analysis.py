@@ -1,3 +1,4 @@
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Union
 import http.client
 import json
 import subprocess
@@ -73,7 +74,7 @@ class EndToEndAnalysisTests(unittest.TestCase):
         self.assertIn("Refunds require immutable audit logs", ai_client.prompts[0])
         self.assertIn("service.refund", ai_client.prompts[0])
 
-    def create_repo_with_refund_change(self, repo: Path) -> tuple[str, str]:
+    def create_repo_with_refund_change(self, repo: Path) -> Tuple[str, str]:
         self.run_git(repo, "init")
         self.run_git(repo, "checkout", "-b", "main")
         self.run_git(repo, "config", "user.email", "tester@example.com")
@@ -107,7 +108,7 @@ class EndToEndAnalysisTests(unittest.TestCase):
         return before_commit, after_commit
 
     def run_git(self, repo: Path, *args: str) -> subprocess.CompletedProcess:
-        return subprocess.run(["git", *args], cwd=repo, check=True, text=True, capture_output=True)
+        return subprocess.run(["git", *args], cwd=repo, check=True, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     def post_json(self, address, path, payload):
         connection = http.client.HTTPConnection(address[0], address[1], timeout=5)
@@ -139,7 +140,7 @@ class FakeCodebaseMemoryClient:
         self.indexed.append((repo_path, project_name))
         return "indexed-payments"
 
-    def trace_two_hop(self, project_id: str, function_name: str, direction: str, depth: int = 2) -> list[str]:
+    def trace_two_hop(self, project_id: str, function_name: str, direction: str, depth: int = 2) -> List[str]:
         if direction == "inbound":
             return ["api.refunds.post_refund"]
         return ["audit.write_refund_event"]

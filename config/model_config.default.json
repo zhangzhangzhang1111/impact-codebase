@@ -1,0 +1,71 @@
+{
+  "default_provider_id": "deepseek",
+  "configs": [
+    {
+      "provider_id": "openai",
+      "model": "gpt-4.1",
+      "base_url": "https://api.openai.com/v1",
+      "api_key": ""
+    },
+    {
+      "provider_id": "anthropic",
+      "model": "claude-3-7-sonnet-latest",
+      "base_url": "https://api.anthropic.com/v1",
+      "api_key": ""
+    },
+    {
+      "provider_id": "anthropic-compatible",
+      "model": "claude-3-7-sonnet-latest",
+      "base_url": "http://localhost:53453/v1",
+      "api_key": ""
+    },
+    {
+      "provider_id": "gemini",
+      "model": "gemini-2.5-pro",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta",
+      "api_key": ""
+    },
+    {
+      "provider_id": "deepseek",
+      "model": "deepseek-chat",
+      "base_url": "https://api.deepseek.com/v1",
+      "api_key": ""
+    },
+    {
+      "provider_id": "qwen",
+      "model": "qwen-max",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "api_key": ""
+    },
+    {
+      "provider_id": "zhipu",
+      "model": "glm-4-plus",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "api_key": ""
+    },
+    {
+      "provider_id": "moonshot",
+      "model": "moonshot-v1-128k",
+      "base_url": "https://api.moonshot.cn/v1",
+      "api_key": ""
+    },
+    {
+      "provider_id": "doubao",
+      "model": "doubao-pro-128k",
+      "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+      "api_key": ""
+    },
+    {
+      "provider_id": "hunyuan",
+      "model": "hunyuan-turbos-latest",
+      "base_url": "https://api.hunyuan.cloud.tencent.com/v1",
+      "api_key": ""
+    },
+    {
+      "provider_id": "ernie",
+      "model": "ernie-4.0-turbo-128k",
+      "base_url": "https://qianfan.baidubce.com/v2",
+      "api_key": ""
+    }
+  ]
+}

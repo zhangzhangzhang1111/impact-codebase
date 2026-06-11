@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Union
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -48,7 +47,7 @@ DEFAULT_REVIEW_STANDARD_LANGUAGES = tuple(LANGUAGE_NOTES.keys())
 @dataclass(frozen=True)
 class ReviewStandard:
     language: str
-    sections: dict[str, list[str]]
+    sections: Dict[str, List[str]]
 
 
 def standard_for_language(language: str) -> ReviewStandard:
@@ -64,10 +63,10 @@ def standard_for_language(language: str) -> ReviewStandard:
 
 class InMemoryReviewStandardStore:
     def __init__(self):
-        self._standards: dict[str, ReviewStandard] = {}
+        self._standards: Dict[str, ReviewStandard] = {}
         self._lock = RLock()
 
-    def list(self) -> list[ReviewStandard]:
+    def list(self) -> List[ReviewStandard]:
         with self._lock:
             standards = {language: standard_for_language(language) for language in DEFAULT_REVIEW_STANDARD_LANGUAGES}
             standards.update(self._standards)
@@ -78,7 +77,7 @@ class InMemoryReviewStandardStore:
         with self._lock:
             return self._standards.get(normalized) or standard_for_language(normalized)
 
-    def save(self, language: str, sections: dict[str, list[str]]) -> ReviewStandard:
+    def save(self, language: str, sections: Dict[str, List[str]]) -> ReviewStandard:
         normalized = language.lower().strip() or "generic"
         standard = ReviewStandard(language=normalized, sections={key: list(value) for key, value in sections.items()})
         with self._lock:
@@ -96,7 +95,7 @@ class JsonFileReviewStandardStore(InMemoryReviewStandardStore):
         super().__init__()
         self._standards = self._load()
 
-    def _load(self) -> dict[str, ReviewStandard]:
+    def _load(self) -> Dict[str, ReviewStandard]:
         if not self.path.exists():
             return {}
         payload = json.loads(self.path.read_text(encoding="utf-8"))

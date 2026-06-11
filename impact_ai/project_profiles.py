@@ -1,3 +1,4 @@
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Union
 from dataclasses import dataclass
 from pathlib import Path
 import re
@@ -12,7 +13,7 @@ def _safe_project_dir(project_name: str) -> str:
 class ProjectProfile:
     project_name: str
     business_context: str
-    source_path: Path | None
+    source_path: Optional[Path]
 
 
 class ProjectProfileLoader:

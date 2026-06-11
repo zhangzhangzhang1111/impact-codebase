@@ -1,10 +1,10 @@
 import json
 import os
 import re
-from typing import Any
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Union
 from urllib import request
 from urllib.error import HTTPError
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from impact_ai.ai_providers import AIProvider
 
@@ -16,9 +16,9 @@ class AIClientError(RuntimeError):
 class OpenAICompatibleClient:
     def __init__(
         self,
-        api_keys: dict[str, str] | None = None,
-        base_urls: dict[str, str] | None = None,
-        models: dict[str, str] | None = None,
+        api_keys: Optional[Dict[str, str]] = None,
+        base_urls: Optional[Dict[str, str]] = None,
+        models: Optional[Dict[str, str]] = None,
     ):
         self.api_keys = api_keys or {}
         self.base_urls = base_urls or {}
@@ -34,9 +34,9 @@ class OpenAICompatibleClient:
             or os.environ.get(provider.base_url_env)
             or provider.default_base_url
         ).rstrip("/")
-        if provider.id == "anthropic":
+        if provider.api_format == "anthropic_messages":
             return self._complete_anthropic(prompt, provider, api_key, base_url, max_output_tokens)
-        if provider.id == "gemini":
+        if provider.api_format == "gemini_generate_content":
             return self._complete_gemini(prompt, provider, api_key, base_url, max_output_tokens)
         return self._complete_openai_compatible(prompt, provider, api_key, base_url, max_output_tokens)
 
@@ -53,8 +53,9 @@ class OpenAICompatibleClient:
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.2,
             "max_tokens": max_output_tokens,
-            "response_format": {"type": "json_object"},
         }
+        if provider.supports_response_format:
+            payload["response_format"] = {"type": "json_object"}
         http_request = request.Request(
             f"{base_url}/chat/completions",
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -85,7 +86,7 @@ class OpenAICompatibleClient:
             "messages": [{"role": "user", "content": prompt}],
         }
         http_request = request.Request(
-            f"{base_url}/messages",
+            f"{_anthropic_base_url(base_url)}/messages",
             data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
             headers={
                 "x-api-key": api_key,
@@ -129,18 +130,35 @@ class OpenAICompatibleClient:
         return self.models.get(provider.id) or os.environ.get(provider.model_env) or provider.default_model
 
 
-def _post_json(http_request: request.Request) -> dict[str, Any]:
+def _anthropic_base_url(base_url: str) -> str:
+    return base_url if base_url.rstrip("/").endswith("/v1") else f"{base_url.rstrip('/')}/v1"
+
+
+def _post_json(http_request: request.Request) -> Dict[str, Any]:
     try:
         with request.urlopen(http_request, timeout=60) as response:
             return json.loads(response.read().decode("utf-8"))
     except HTTPError as error:
         body = error.read().decode("utf-8", errors="replace")
-        raise AIClientError(f"AI provider HTTP {error.code}: {_extract_error_message(body)}") from error
+        raise AIClientError(
+            f"AI provider HTTP {error.code} for {_safe_request_url(http_request.full_url)}: {_extract_error_message(body)}"
+        ) from error
+
+
+def _safe_request_url(url: str) -> str:
+    parts = urlsplit(url)
+    query = urlencode(
+        [
+            (key, "<redacted>" if key.lower() in {"key", "api_key", "apikey", "token"} else value)
+            for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        ]
+    )
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
 
 
 def _extract_error_message(body: str) -> str:
     if not body:
-        return ""
+        return "<empty response body>"
     try:
         payload = json.loads(body)
     except json.JSONDecodeError:
@@ -153,7 +171,7 @@ def _extract_error_message(body: str) -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
-def _parse_json_object_content(content: str | dict) -> dict:
+def _parse_json_object_content(content: Union[str, Dict]) -> dict:
     if isinstance(content, dict):
         return content
 
@@ -161,11 +179,28 @@ def _parse_json_object_content(content: str | dict) -> dict:
     try:
         parsed = json.loads(content)
     except json.JSONDecodeError as error:
-        raise AIClientError("AI response content was not valid JSON.") from error
+        parsed = _last_json_object_in_text(content)
+        if parsed is None:
+            raise AIClientError("AI response content was not valid JSON.") from error
 
     if not isinstance(parsed, dict):
         raise AIClientError("AI response JSON must be an object.")
     return parsed
+
+
+def _last_json_object_in_text(content: str) -> Optional[Dict]:
+    decoder = json.JSONDecoder()
+    parsed_object = None
+    for index, character in enumerate(content):
+        if character != "{":
+            continue
+        try:
+            parsed, _end = decoder.raw_decode(content[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            parsed_object = parsed
+    return parsed_object
 
 
 def _normalize_json_content(content: str) -> str:
@@ -181,14 +216,14 @@ def _normalize_json_content(content: str) -> str:
     return stripped
 
 
-def _extract_content(response_payload: dict[str, Any]) -> str | dict:
+def _extract_content(response_payload: Dict[str, Any]) -> Union[str, Dict]:
     try:
         return response_payload["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as error:
         raise AIClientError("AI response did not include choices[0].message.content.") from error
 
 
-def _extract_anthropic_content(response_payload: dict[str, Any]) -> str | dict:
+def _extract_anthropic_content(response_payload: Dict[str, Any]) -> Union[str, Dict]:
     try:
         block = response_payload["content"][0]
         if isinstance(block, dict):
@@ -198,7 +233,7 @@ def _extract_anthropic_content(response_payload: dict[str, Any]) -> str | dict:
         raise AIClientError("Anthropic response did not include content[0].text.") from error
 
 
-def _extract_gemini_content(response_payload: dict[str, Any]) -> str | dict:
+def _extract_gemini_content(response_payload: Dict[str, Any]) -> Union[str, Dict]:
     try:
         return response_payload["candidates"][0]["content"]["parts"][0]["text"]
     except (KeyError, IndexError, TypeError) as error:

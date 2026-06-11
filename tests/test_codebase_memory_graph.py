@@ -1,3 +1,4 @@
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Union
 import subprocess
 import tempfile
 import textwrap
@@ -21,15 +22,16 @@ class FakeCodebaseMemoryClient:
             ["git", "rev-parse", "HEAD"],
             cwd=repo_path,
             check=True,
-            text=True,
-            capture_output=True,
+            universal_newlines=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         ).stdout.strip()
         self.indexed_heads.append(head)
         if project_name.endswith("@before"):
-            return f"indexed-{project_name.removesuffix('@before')}-before"
+            return f"indexed-{project_name[:-len('@before')]}-before"
         return f"indexed-{project_name}"
 
-    def trace_two_hop(self, project_id: str, function_name: str, direction: str, depth: int = 2) -> list[str]:
+    def trace_two_hop(self, project_id: str, function_name: str, direction: str, depth: int = 2) -> List[str]:
         self.trace_calls.append((project_id, function_name, direction, depth))
         if direction == "inbound":
             return ["api.refunds.post_refund", "jobs.refunds.retry_refund"]
@@ -37,7 +39,7 @@ class FakeCodebaseMemoryClient:
 
 
 class MissingFunctionTraceClient(FakeCodebaseMemoryClient):
-    def trace_two_hop(self, project_id: str, function_name: str, direction: str, depth: int = 2) -> list[str]:
+    def trace_two_hop(self, project_id: str, function_name: str, direction: str, depth: int = 2) -> List[str]:
         self.trace_calls.append((project_id, function_name, direction, depth))
         if function_name == "lapi.lua_settop":
             raise RuntimeError('trace_path failed: {"error":"function not found","function_name":"lapi.lua_settop"}')
@@ -50,7 +52,7 @@ class FailingIndexClient(FakeCodebaseMemoryClient):
 
 
 class EmptyTraceClient(FakeCodebaseMemoryClient):
-    def trace_two_hop(self, project_id: str, function_name: str, direction: str, depth: int = 2) -> list[str]:
+    def trace_two_hop(self, project_id: str, function_name: str, direction: str, depth: int = 2) -> List[str]:
         self.trace_calls.append((project_id, function_name, direction, depth))
         return []
 
@@ -362,7 +364,7 @@ class CodebaseMemoryKnowledgeGraphTests(unittest.TestCase):
             self.assertEqual(call_graph.inbound["rate_limiting.get_stored_response_header"], ["t/01-pdk.t:2"])
             self.assertIn("_validate_key", call_graph.outbound["rate_limiting.get_stored_response_header"])
 
-    def create_repo_with_python_change(self, repo: Path) -> tuple[str, str]:
+    def create_repo_with_python_change(self, repo: Path) -> Tuple[str, str]:
         self.run_git(repo, "init")
         self.run_git(repo, "checkout", "-b", "main")
         self.run_git(repo, "config", "user.email", "tester@example.com")
@@ -395,7 +397,7 @@ class CodebaseMemoryKnowledgeGraphTests(unittest.TestCase):
         after_commit = self.run_git(repo, "rev-parse", "HEAD").stdout.strip()
         return before_commit, after_commit
 
-    def create_repo_with_named_python_change(self, repo: Path, function_name: str) -> tuple[str, str]:
+    def create_repo_with_named_python_change(self, repo: Path, function_name: str) -> Tuple[str, str]:
         self.run_git(repo, "init")
         self.run_git(repo, "checkout", "-b", "main")
         self.run_git(repo, "config", "user.email", "tester@example.com")
@@ -428,7 +430,7 @@ class CodebaseMemoryKnowledgeGraphTests(unittest.TestCase):
         after_commit = self.run_git(repo, "rev-parse", "HEAD").stdout.strip()
         return before_commit, after_commit
 
-    def create_repo_with_newer_branch_tip(self, repo: Path) -> tuple[str, str, str]:
+    def create_repo_with_newer_branch_tip(self, repo: Path) -> Tuple[str, str, str]:
         self.run_git(repo, "init")
         self.run_git(repo, "checkout", "-b", "main")
         self.run_git(repo, "config", "user.email", "tester@example.com")
@@ -467,7 +469,7 @@ class CodebaseMemoryKnowledgeGraphTests(unittest.TestCase):
         branch_tip = self.run_git(repo, "rev-parse", "HEAD").stdout.strip()
         return before_commit, after_commit, branch_tip
 
-    def create_repo_with_deleted_python_function(self, repo: Path) -> tuple[str, str]:
+    def create_repo_with_deleted_python_function(self, repo: Path) -> Tuple[str, str]:
         self.run_git(repo, "init")
         self.run_git(repo, "checkout", "-b", "main")
         self.run_git(repo, "config", "user.email", "tester@example.com")
@@ -504,7 +506,7 @@ class CodebaseMemoryKnowledgeGraphTests(unittest.TestCase):
         return before_commit, after_commit
 
     def run_git(self, repo: Path, *args: str) -> subprocess.CompletedProcess:
-        return subprocess.run(["git", *args], cwd=repo, check=True, text=True, capture_output=True)
+        return subprocess.run(["git", *args], cwd=repo, check=True, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
 if __name__ == "__main__":

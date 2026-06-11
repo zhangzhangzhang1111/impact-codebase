@@ -1,3 +1,4 @@
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Union
 import math
 from dataclasses import dataclass
 
@@ -23,14 +24,14 @@ class TokenBudget:
             return 0
         return max(1, math.ceil(len(text) / 4))
 
-    def chunk_text(self, text: str) -> list[str]:
+    def chunk_text(self, text: str) -> List[str]:
         available_tokens = self.max_input_tokens - self.reserved_output_tokens
         if available_tokens <= 0:
             raise BudgetExceededError("No input budget remains after reserving output tokens.")
 
         words = text.split()
-        chunks: list[str] = []
-        current: list[str] = []
+        chunks: List[str] = []
+        current: List[str] = []
 
         for word in words:
             candidate = " ".join([*current, word])

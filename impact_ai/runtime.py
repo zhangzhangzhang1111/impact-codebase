@@ -1,7 +1,9 @@
 import os
+import json
+import shutil
 import subprocess
 from pathlib import Path
-from typing import Callable, Mapping
+from typing import Callable, Mapping, Any, Dict, List, Optional, Set, Tuple, Union
 
 from impact_ai.ai_client import OpenAICompatibleClient
 from impact_ai.ai_providers import provider_catalog
@@ -20,25 +22,28 @@ ProcessLauncher = Callable[..., subprocess.Popen]
 
 
 class ManagedCodebaseMemoryProcess:
-    def __init__(self, process: subprocess.Popen | None):
+    def __init__(self, process: Optional[subprocess.Popen], processes: Optional[List[subprocess.Popen]] = None):
         self.process = process
+        self.processes = processes if processes is not None else ([process] if process is not None else [])
 
     def close(self) -> None:
-        if self.process is None or self.process.poll() is not None:
-            return
-        self.process.terminate()
-        try:
-            self.process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            self.process.kill()
-            self.process.wait(timeout=5)
+        for process in self.processes:
+            if process.poll() is not None:
+                continue
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
 
 
 def build_analyzer_from_env(
-    env: Mapping[str, str] | None = None,
-    codebase_memory_client: CodebaseMemoryClient | None = None,
+    env: Optional[Mapping[str, str]] = None,
+    codebase_memory_client: Optional[CodebaseMemoryClient] = None,
 ) -> ImpactAnalyzer:
-    env = env or os.environ
+    env = with_claude_network_env(env or os.environ)
+    _apply_network_env_to_process(env)
     workspace_root = Path(env.get("IMPACT_AI_WORKSPACE_ROOT", ".impact-ai/repos"))
     default_codebase_memory_cache = workspace_root.parent / "codebase-memory-cache"
     profile_root = Path(env.get("IMPACT_AI_PROFILE_ROOT", "profiles"))
@@ -64,16 +69,22 @@ def build_analyzer_from_env(
 
 
 def create_configured_server(
-    address: tuple[str, int],
-    env: Mapping[str, str] | None = None,
-    codebase_memory_client: CodebaseMemoryClient | None = None,
-    codebase_memory_launcher: ProcessLauncher | None = None,
+    address: Tuple[str, int],
+    env: Optional[Mapping[str, str]] = None,
+    codebase_memory_client: Optional[CodebaseMemoryClient] = None,
+    codebase_memory_launcher: Optional[ProcessLauncher] = None,
 ):
     analyzer = build_analyzer_from_env(env=env, codebase_memory_client=codebase_memory_client)
-    env = env or os.environ
+    env = with_claude_network_env(env or os.environ)
+    _apply_network_env_to_process(env)
     job_store = JsonFileJobStore(Path(env.get("IMPACT_AI_HISTORY_PATH", ".impact-ai/history.json")))
     profile_loader = ProjectProfileLoader(Path(env.get("IMPACT_AI_PROFILE_ROOT", "profiles")))
-    model_config_store = JsonFileModelConfigStore(Path(env.get("IMPACT_AI_MODEL_CONFIG_PATH", ".impact-ai/model_config.json")))
+    model_config_path = Path(env.get("IMPACT_AI_MODEL_CONFIG_PATH", ".impact-ai/model_config.json"))
+    _seed_model_config_if_missing(
+        model_config_path,
+        Path(env.get("IMPACT_AI_DEFAULT_MODEL_CONFIG_PATH", str(_default_model_config_template_path()))),
+    )
+    model_config_store = JsonFileModelConfigStore(model_config_path)
     review_standard_store = JsonFileReviewStandardStore(Path(env.get("IMPACT_AI_REVIEW_STANDARDS_PATH", ".impact-ai/review_standards.json")))
     analyzer.review_standard_store = review_standard_store
     for config in model_config_store.list():
@@ -95,8 +106,9 @@ def create_configured_server(
 
 def start_managed_codebase_memory_process(
     env: Mapping[str, str],
-    launcher: ProcessLauncher | None = None,
+    launcher: Optional[ProcessLauncher] = None,
 ) -> ManagedCodebaseMemoryProcess:
+    env = with_claude_network_env(env)
     if _env_flag(env, "IMPACT_AI_MANAGE_CODEBASE_MEMORY", default=True) is False:
         return ManagedCodebaseMemoryProcess(None)
 
@@ -108,25 +120,29 @@ def start_managed_codebase_memory_process(
     process_env["CBM_CACHE_DIR"] = str(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
 
+    run = launcher or subprocess.Popen
+    processes = []
+
     if _env_flag(env, "CODEBASE_MEMORY_ENABLE_UI", default=True):
-        subprocess.run(
+        ui_process = run(
             [binary, "--ui=true", f"--port={ui_port}"],
-            check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             env=process_env,
+            universal_newlines=True,
         )
+        processes.append(ui_process)
 
-    run = launcher or subprocess.Popen
     process = run(
         [binary],
         stdin=subprocess.PIPE,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         env=process_env,
-        text=True,
+        universal_newlines=True,
     )
-    return ManagedCodebaseMemoryProcess(process)
+    processes.append(process)
+    return ManagedCodebaseMemoryProcess(process, processes)
 
 
 def _attach_managed_process(server, process: ManagedCodebaseMemoryProcess) -> None:
@@ -149,7 +165,61 @@ def _env_flag(env: Mapping[str, str], key: str, default: bool) -> bool:
     return value.strip().lower() not in {"0", "false", "no", "off"}
 
 
-def _token_budget_from_env(env: Mapping[str, str]) -> TokenBudget | None:
+def with_claude_network_env(env: Mapping[str, str]) -> Dict[str, str]:
+    merged = dict(env)
+    claude_env = _claude_settings_env()
+    for key in ("NO_PROXY", "no_proxy"):
+        value = claude_env.get(key)
+        if not isinstance(value, str) or not value.strip():
+            continue
+        merged[key] = _merge_csv_values(os.environ.get(key, ""), merged.get(key, ""), value)
+    return merged
+
+
+def _apply_network_env_to_process(env: Mapping[str, str]) -> None:
+    for key in ("NO_PROXY", "no_proxy"):
+        value = env.get(key)
+        if value:
+            os.environ[key] = value
+
+
+def _claude_settings_env() -> Dict[str, str]:
+    settings_path = Path(os.environ.get("HOME", str(Path.home()))) / ".claude" / "settings.json"
+    if not settings_path.exists():
+        return {}
+    try:
+        payload = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    env = payload.get("env")
+    return env if isinstance(env, dict) else {}
+
+
+def _merge_csv_values(*values: str) -> str:
+    merged = []
+    seen = set()
+    for value in values:
+        for item in value.split(","):
+            normalized = item.strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            merged.append(normalized)
+    return ",".join(merged)
+
+
+def _default_model_config_template_path() -> Path:
+    return Path(__file__).resolve().parent.parent / "config" / "model_config.default.json"
+
+
+def _seed_model_config_if_missing(target_path: Path, template_path: Path) -> None:
+    if target_path.exists() or not template_path.exists():
+        return
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(str(template_path), str(target_path))
+
+
+def _token_budget_from_env(env: Mapping[str, str]) -> Optional[TokenBudget]:
     required_keys = (
         "IMPACT_AI_MAX_INPUT_TOKENS",
         "IMPACT_AI_MAX_OUTPUT_TOKENS",
@@ -164,7 +234,7 @@ def _token_budget_from_env(env: Mapping[str, str]) -> TokenBudget | None:
     )
 
 
-def _configured_values(env: Mapping[str, str], provider_field: str) -> dict[str, str]:
+def _configured_values(env: Mapping[str, str], provider_field: str) -> Dict[str, str]:
     values = {}
     for provider in provider_catalog():
         env_key = getattr(provider, provider_field)
@@ -173,7 +243,7 @@ def _configured_values(env: Mapping[str, str], provider_field: str) -> dict[str,
     return values
 
 
-def _configured_models(env: Mapping[str, str]) -> dict[str, str]:
+def _configured_models(env: Mapping[str, str]) -> Dict[str, str]:
     models = {}
     for provider in provider_catalog():
         if provider.model_env in env:

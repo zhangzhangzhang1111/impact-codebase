@@ -1,3 +1,4 @@
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Union
 import os
 import subprocess
 import tempfile
@@ -37,7 +38,7 @@ class CodebaseMemoryCliIntegrationTests(unittest.TestCase):
         self.assertTrue(project_id)
 
     def run_git(self, repo: Path, *args: str) -> subprocess.CompletedProcess:
-        return subprocess.run(["git", *args], cwd=repo, check=True, text=True, capture_output=True)
+        return subprocess.run(["git", *args], cwd=repo, check=True, universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
 if __name__ == "__main__":

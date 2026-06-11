@@ -1,11 +1,17 @@
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Union
 import json
 import threading
 import unittest
 from dataclasses import replace
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import ThreadingMixIn
 
-from impact_ai.ai_client import OpenAICompatibleClient
+from impact_ai.ai_client import OpenAICompatibleClient, _extract_error_message, _parse_json_object_content
 from impact_ai.ai_providers import provider_catalog
+
+
+class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+    daemon_threads = True
 
 
 class CapturingChatHandler(BaseHTTPRequestHandler):
@@ -82,6 +88,7 @@ class OpenAICompatibleClientTests(unittest.TestCase):
             self.assertEqual(CapturingChatHandler.captured["authorization"], "Bearer secret-token")
             self.assertEqual(CapturingChatHandler.captured["body"]["model"], provider.default_model)
             self.assertEqual(CapturingChatHandler.captured["body"]["max_tokens"], 256)
+            self.assertEqual(CapturingChatHandler.captured["body"]["response_format"], {"type": "json_object"})
             self.assertEqual(CapturingChatHandler.captured["body"]["messages"][0]["content"], "Analyze this diff.")
         finally:
             server.shutdown()
@@ -162,6 +169,20 @@ class OpenAICompatibleClientTests(unittest.TestCase):
             thread.join(timeout=2)
             server.server_close()
 
+    def test_extract_error_message_describes_empty_response_body(self):
+        self.assertEqual(_extract_error_message(""), "<empty response body>")
+
+    def test_parse_json_object_content_uses_last_valid_object_after_thinking_text(self):
+        content = (
+            '<think>The requested object is {"ok": true, "message": "model is reachable"}.</think>\n\n'
+            '{"ok": true, "message": "model is reachable"}'
+        )
+
+        self.assertEqual(
+            _parse_json_object_content(content),
+            {"ok": True, "message": "model is reachable"},
+        )
+
     def test_complete_posts_anthropic_messages_request_and_parses_json_content(self):
         server = ThreadingHTTPServer(("127.0.0.1", 0), CapturingChatHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -183,6 +204,54 @@ class OpenAICompatibleClientTests(unittest.TestCase):
             self.assertEqual(CapturingChatHandler.captured["anthropic_version"], "2023-06-01")
             self.assertEqual(CapturingChatHandler.captured["body"]["model"], provider.default_model)
             self.assertEqual(CapturingChatHandler.captured["body"]["max_tokens"], 256)
+            self.assertEqual(CapturingChatHandler.captured["body"]["messages"][0]["content"], "Analyze this diff.")
+        finally:
+            server.shutdown()
+            thread.join(timeout=2)
+            server.server_close()
+
+    def test_complete_posts_anthropic_messages_request_with_root_base_url(self):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), CapturingChatHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            provider = replace(
+                next(provider for provider in provider_catalog() if provider.id == "anthropic"),
+                default_base_url=f"http://127.0.0.1:{server.server_address[1]}/anthropic",
+                api_key_env="TEST_ANTHROPIC_API_KEY",
+            )
+            client = OpenAICompatibleClient(api_keys={"TEST_ANTHROPIC_API_KEY": "secret-token"})
+
+            client.complete("Analyze this diff.", provider=provider, max_output_tokens=256)
+
+            self.assertEqual(CapturingChatHandler.captured["path"], "/anthropic/v1/messages")
+        finally:
+            server.shutdown()
+            thread.join(timeout=2)
+            server.server_close()
+
+    def test_complete_posts_anthropic_compatible_messages_request(self):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), CapturingChatHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            provider = replace(
+                next(provider for provider in provider_catalog() if provider.id == "anthropic-compatible"),
+                default_base_url=f"http://127.0.0.1:{server.server_address[1]}/v1",
+                api_key_env="TEST_ANTHROPIC_COMPATIBLE_API_KEY",
+            )
+            client = OpenAICompatibleClient(api_keys={"TEST_ANTHROPIC_COMPATIBLE_API_KEY": "secret-token"})
+
+            result = client.complete("Analyze this diff.", provider=provider, max_output_tokens=256)
+
+            self.assertEqual(result["impact_summary"], "Refund API is impacted.")
+            self.assertEqual(CapturingChatHandler.captured["path"], "/v1/messages")
+            self.assertIsNone(CapturingChatHandler.captured["authorization"])
+            self.assertEqual(CapturingChatHandler.captured["x_api_key"], "secret-token")
+            self.assertEqual(CapturingChatHandler.captured["anthropic_version"], "2023-06-01")
+            self.assertEqual(CapturingChatHandler.captured["body"]["model"], provider.default_model)
+            self.assertEqual(CapturingChatHandler.captured["body"]["max_tokens"], 256)
+            self.assertNotIn("response_format", CapturingChatHandler.captured["body"])
             self.assertEqual(CapturingChatHandler.captured["body"]["messages"][0]["content"], "Analyze this diff.")
         finally:
             server.shutdown()

@@ -13,5 +13,17 @@ export IMPACT_AI_MODEL_CONFIG_PATH=${IMPACT_AI_MODEL_CONFIG_PATH:-"$ROOT_DIR/.im
 export IMPACT_AI_REVIEW_STANDARDS_PATH=${IMPACT_AI_REVIEW_STANDARDS_PATH:-"$ROOT_DIR/.impact-ai/review_standards.json"}
 export IMPACT_AI_PROFILE_ROOT=${IMPACT_AI_PROFILE_ROOT:-"$ROOT_DIR/profiles"}
 
+if python3 - <<'PY'
+import sys
+raise SystemExit(0 if sys.version_info < (3, 7) else 1)
+PY
+then
+  for wheel in "$ROOT_DIR"/vendor/python/*.whl; do
+    [ -f "$wheel" ] || continue
+    PYTHONPATH="$wheel${PYTHONPATH:+:$PYTHONPATH}"
+  done
+  export PYTHONPATH=${PYTHONPATH:-}
+fi
+
 cd "$ROOT_DIR"
 exec python3 -m impact_ai.http_server

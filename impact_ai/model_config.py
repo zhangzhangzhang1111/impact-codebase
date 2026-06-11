@@ -1,3 +1,4 @@
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Union
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -14,15 +15,15 @@ class ModelConfig:
 
 class InMemoryModelConfigStore:
     def __init__(self, default_provider_id: str = ""):
-        self._configs: dict[str, ModelConfig] = {}
+        self._configs: Dict[str, ModelConfig] = {}
         self._default_provider_id = default_provider_id
         self._lock = RLock()
 
-    def list(self) -> list[ModelConfig]:
+    def list(self) -> List[ModelConfig]:
         with self._lock:
             return list(self._configs.values())
 
-    def get(self, provider_id: str) -> ModelConfig | None:
+    def get(self, provider_id: str) -> Optional[ModelConfig]:
         with self._lock:
             return self._configs.get(provider_id)
 
@@ -41,7 +42,7 @@ class InMemoryModelConfigStore:
         provider_id: str,
         model: str = "",
         base_url: str = "",
-        api_key: str | None = None,
+        api_key: Optional[str] = None,
     ) -> ModelConfig:
         with self._lock:
             existing = self._configs.get(provider_id)
@@ -65,7 +66,7 @@ class JsonFileModelConfigStore(InMemoryModelConfigStore):
         super().__init__()
         self._configs = self._load()
 
-    def _load(self) -> dict[str, ModelConfig]:
+    def _load(self) -> Dict[str, ModelConfig]:
         if not self.path.exists():
             return {}
         payload = json.loads(self.path.read_text(encoding="utf-8"))

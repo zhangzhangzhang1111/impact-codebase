@@ -1,18 +1,18 @@
 import re
 import subprocess
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Callable, Any, Dict, List, Mapping, Optional, Set, Tuple, Union
 
 from impact_ai.git_diff import GitDiffFunctionExtractor
 from impact_ai.knowledge_graph import CallGraph, ChangedFunction, DiffAnalysis
 from impact_ai.models import ImpactAnalysisRequest
 
 
-class CodebaseMemoryClient(Protocol):
+class CodebaseMemoryClient:
     def index_repository(self, repo_path: Path, project_name: str) -> str:
         raise NotImplementedError
 
-    def trace_two_hop(self, project_id: str, function_name: str, direction: str, depth: int = 2) -> list[str]:
+    def trace_two_hop(self, project_id: str, function_name: str, direction: str, depth: int = 2) -> List[str]:
         raise NotImplementedError
 
 
@@ -20,15 +20,15 @@ class CodebaseMemoryKnowledgeGraph:
     def __init__(self, workspace_root: Path, client: CodebaseMemoryClient):
         self.workspace_root = workspace_root
         self.client = client
-        self._repo_paths: dict[str, Path] = {}
-        self._project_ids: dict[str, str] = {}
-        self._before_project_ids: dict[str, str] = {}
-        self._index_errors: dict[str, str] = {}
+        self._repo_paths: Dict[str, Path] = {}
+        self._project_ids: Dict[str, str] = {}
+        self._before_project_ids: Dict[str, str] = {}
+        self._index_errors: Dict[str, str] = {}
 
     def changed_functions(
         self,
         request: ImpactAnalysisRequest,
-        progress: Callable[[str], None] | None = None,
+        progress: Optional[Callable[[str], None]] = None,
     ) -> DiffAnalysis:
         _report(progress, "checkout_repository")
         repo_path = self._checkout(request)
@@ -60,15 +60,15 @@ class CodebaseMemoryKnowledgeGraph:
     def two_hop_call_graph(
         self,
         project_name: str,
-        functions: list[ChangedFunction],
+        functions: List[ChangedFunction],
         depth: int = 2,
-        progress: Callable[[str], None] | None = None,
+        progress: Optional[Callable[[str], None]] = None,
     ) -> CallGraph:
         _report(progress, "trace_call_graph")
-        inbound: dict[str, list[str]] = {}
-        outbound: dict[str, list[str]] = {}
-        trace_status: dict[str, str] = {}
-        trace_errors: dict[str, str] = {}
+        inbound: Dict[str, List[str]] = {}
+        outbound: Dict[str, List[str]] = {}
+        trace_status: Dict[str, str] = {}
+        trace_errors: Dict[str, str] = {}
 
         for function in functions:
             inbound_calls, inbound_status, inbound_error = self._trace_function_with_status(
@@ -105,7 +105,7 @@ class CodebaseMemoryKnowledgeGraph:
         function: ChangedFunction,
         direction: str,
         depth: int,
-    ) -> tuple[list[str], str, str]:
+    ) -> Tuple[List[str], str, str]:
         project_id = self._project_ids.get(project_name)
         index_error = self._index_errors.get(project_name)
         if function.change_type == "deleted":
@@ -129,7 +129,7 @@ class CodebaseMemoryKnowledgeGraph:
                 return merged_calls, "augmented_success", error
         return calls, status, error
 
-    def _trace_two_hop_with_status(self, project_id: str, function_name: str, direction: str, depth: int) -> tuple[list[str], str, str]:
+    def _trace_two_hop_with_status(self, project_id: str, function_name: str, direction: str, depth: int) -> Tuple[List[str], str, str]:
         try:
             return self.client.trace_two_hop(project_id, function_name, direction, depth), "success", ""
         except Exception as error:
@@ -137,7 +137,7 @@ class CodebaseMemoryKnowledgeGraph:
                 return [], "not_found", str(error)
             raise
 
-    def _fallback_trace(self, project_name: str, function: ChangedFunction, direction: str) -> list[str]:
+    def _fallback_trace(self, project_name: str, function: ChangedFunction, direction: str) -> List[str]:
         repo_path = self._repo_paths.get(project_name)
         if repo_path is None:
             return []
@@ -186,8 +186,9 @@ class CodebaseMemoryKnowledgeGraph:
             ["git", *args],
             cwd=cwd,
             check=True,
-            text=True,
-            capture_output=True,
+            universal_newlines=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
         return completed.stdout
 
@@ -195,8 +196,9 @@ class CodebaseMemoryKnowledgeGraph:
         completed = subprocess.run(
             ["git", *args],
             cwd=cwd,
-            text=True,
-            capture_output=True,
+            universal_newlines=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
         return completed.returncode == 0
 
@@ -225,9 +227,9 @@ def _combine_trace_status(inbound_status: str, outbound_status: str) -> str:
     return "partial"
 
 
-def _merge_calls(primary: list[str], supplemental: list[str]) -> list[str]:
-    merged: list[str] = []
-    seen: set[str] = set()
+def _merge_calls(primary: List[str], supplemental: List[str]) -> List[str]:
+    merged: List[str] = []
+    seen: Set[str] = set()
     for call in [*primary, *supplemental]:
         if call in seen:
             continue
@@ -236,10 +238,10 @@ def _merge_calls(primary: list[str], supplemental: list[str]) -> list[str]:
     return merged
 
 
-def _fallback_inbound_callers(repo_path: Path, function: ChangedFunction) -> list[str]:
+def _fallback_inbound_callers(repo_path: Path, function: ChangedFunction) -> List[str]:
     aliases = _call_aliases(function)
-    callers: list[str] = []
-    seen: set[str] = set()
+    callers: List[str] = []
+    seen: Set[str] = set()
     definition_path = repo_path / function.file_path
     for path in _iter_source_files(repo_path):
         try:
@@ -259,10 +261,10 @@ def _fallback_inbound_callers(repo_path: Path, function: ChangedFunction) -> lis
     return callers[:50]
 
 
-def _fallback_outbound_calls(repo_path: Path, function: ChangedFunction) -> list[str]:
+def _fallback_outbound_calls(repo_path: Path, function: ChangedFunction) -> List[str]:
     body = _function_body(repo_path, function) or function.diff_hunk
-    calls: list[str] = []
-    seen: set[str] = set()
+    calls: List[str] = []
+    seen: Set[str] = set()
     ignored = {
         "assert",
         "error",
@@ -316,7 +318,7 @@ def _iter_source_files(repo_path: Path):
         yield path
 
 
-def _call_aliases(function: ChangedFunction) -> set[str]:
+def _call_aliases(function: ChangedFunction) -> Set[str]:
     short = _short_name(function)
     aliases = {function.qualified_name, short}
     if function.language.lower() == "lua":
@@ -324,7 +326,7 @@ def _call_aliases(function: ChangedFunction) -> set[str]:
     return aliases
 
 
-def _line_calls_alias(line: str, aliases: set[str]) -> bool:
+def _line_calls_alias(line: str, aliases: Set[str]) -> bool:
     stripped = line.split("--", 1)[0]
     if any(re.search(rf"(?<![\w.]){re.escape(alias)}\s*\(", stripped) for alias in aliases):
         return True
@@ -337,7 +339,7 @@ def _is_lua_definition_line(line: str, function: ChangedFunction) -> bool:
     return bool(re.search(rf"\bfunction\s+(?:[A-Za-z_][\w]*[.:])?{re.escape(short)}\s*\(", line))
 
 
-def _nearest_function_name(lines: list[str], index: int) -> str:
+def _nearest_function_name(lines: List[str], index: int) -> str:
     for cursor in range(index, max(-1, index - 80), -1):
         line = lines[cursor]
         match = re.search(r"\bfunction\s+([A-Za-z_][\w.:]*)\s*\(", line)
@@ -360,6 +362,6 @@ def _relative_path(repo_path: Path, path: Path) -> str:
         return str(path)
 
 
-def _report(progress: Callable[[str], None] | None, stage: str) -> None:
+def _report(progress: Optional[Callable[[str], None]], stage: str) -> None:
     if progress:
         progress(stage)

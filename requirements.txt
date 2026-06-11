@@ -1,2 +1,5 @@
-# Impact Analysis AI currently uses only the Python standard library.
-# Keep this file so deployment scripts have a stable dependency hook.
+# Offline dependency entrypoint. Wheels are vendored under vendor/python.
+--no-index
+--find-links vendor/python
+
+dataclasses==0.8; python_version < "3.7"

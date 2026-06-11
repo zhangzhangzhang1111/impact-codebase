@@ -1,3 +1,4 @@
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Union
 import ast
 import re
 import subprocess
@@ -10,11 +11,11 @@ from impact_ai.knowledge_graph import ChangedFunction
 @dataclass(frozen=True)
 class DiffHunk:
     file_path: str
-    old_file_path: str | None
-    new_file_path: str | None
+    old_file_path: Optional[str]
+    new_file_path: Optional[str]
     start_line: int
-    changed_lines: set[int]
-    old_changed_lines: set[int]
+    changed_lines: Set[int]
+    old_changed_lines: Set[int]
     text: str
 
 
@@ -36,8 +37,8 @@ class GitDiffFunctionExtractor:
     def __init__(self, repo_path: Path):
         self.repo_path = repo_path
 
-    def extract_changed_functions(self, before_commit: str, after_commit: str) -> list[ChangedFunction]:
-        changed_functions: dict[str, ChangedFunction] = {}
+    def extract_changed_functions(self, before_commit: str, after_commit: str) -> List[ChangedFunction]:
+        changed_functions: Dict[str, ChangedFunction] = {}
 
         for language in _supported_languages():
             diff_output = self._git("diff", "--unified=80", before_commit, after_commit, "--", language.diff_glob)
@@ -89,30 +90,31 @@ class GitDiffFunctionExtractor:
             ["git", *args],
             cwd=self.repo_path,
             check=True,
-            text=True,
-            capture_output=True,
+            universal_newlines=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
         return completed.stdout
 
 
-def _parse_diff_hunks(diff_output: str) -> list[DiffHunk]:
-    hunks: list[DiffHunk] = []
-    current_file: str | None = None
-    old_file: str | None = None
-    current_lines: list[str] = []
-    changed_lines: set[int] = set()
-    old_changed_lines: set[int] = set()
+def _parse_diff_hunks(diff_output: str) -> List[DiffHunk]:
+    hunks: List[DiffHunk] = []
+    current_file: Optional[str] = None
+    old_file: Optional[str] = None
+    current_lines: List[str] = []
+    changed_lines: Set[int] = set()
+    old_changed_lines: Set[int] = set()
     new_line = 0
     old_line = 0
     start_line = 0
 
     for line in diff_output.splitlines():
         if line.startswith("--- "):
-            old_file = _diff_path(line.removeprefix("--- "))
+            old_file = _diff_path(_remove_prefix(line, "--- "))
             continue
 
         if line.startswith("+++ "):
-            current_file = _diff_path(line.removeprefix("+++ "))
+            current_file = _diff_path(_remove_prefix(line, "+++ "))
             continue
 
         header = re.match(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", line)
@@ -168,12 +170,16 @@ def _parse_diff_hunks(diff_output: str) -> list[DiffHunk]:
     return hunks
 
 
-def _diff_path(raw_path: str) -> str | None:
+def _diff_path(raw_path: str) -> Optional[str]:
     if raw_path == "/dev/null":
         return None
     if raw_path.startswith("a/") or raw_path.startswith("b/"):
         return raw_path[2:]
     return raw_path
+
+
+def _remove_prefix(value: str, prefix: str) -> str:
+    return value[len(prefix):] if value.startswith(prefix) else value
 
 
 def _change_type_for_new_side(hunk: DiffHunk) -> str:
@@ -182,7 +188,7 @@ def _change_type_for_new_side(hunk: DiffHunk) -> str:
     return "modified"
 
 
-def _supported_languages() -> list[SourceLanguage]:
+def _supported_languages() -> List[SourceLanguage]:
     return [
         SourceLanguage("python", "*.py"),
         SourceLanguage("javascript", "*.js"),
@@ -241,7 +247,7 @@ def _language_for_path(file_path: str) -> str:
     return "unknown"
 
 
-def _function_spans(source: str, file_path: str) -> list[PythonFunctionSpan]:
+def _function_spans(source: str, file_path: str) -> List[PythonFunctionSpan]:
     language = _language_for_path(file_path)
     module_name = Path(file_path).stem
     if language == "python":
@@ -271,10 +277,10 @@ def _function_spans(source: str, file_path: str) -> list[PythonFunctionSpan]:
     return []
 
 
-def _python_function_spans(source: str, module_name: str) -> list[PythonFunctionSpan]:
+def _python_function_spans(source: str, module_name: str) -> List[PythonFunctionSpan]:
     tree = ast.parse(source)
     lines = source.splitlines()
-    spans: list[PythonFunctionSpan] = []
+    spans: List[PythonFunctionSpan] = []
 
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -296,7 +302,7 @@ def _python_function_spans(source: str, module_name: str) -> list[PythonFunction
     return spans
 
 
-def _enclosing_class(tree: ast.AST, target: ast.FunctionDef | ast.AsyncFunctionDef) -> ast.ClassDef | None:
+def _enclosing_class(tree: ast.AST, target: Union[ast.FunctionDef, ast.AsyncFunctionDef]) -> Optional[ast.ClassDef]:
     for node in ast.walk(tree):
         if not isinstance(node, ast.ClassDef):
             continue
@@ -310,9 +316,9 @@ def _signature_from_line(line: str) -> str:
     return line.strip().rstrip(":")
 
 
-def _javascript_function_spans(source: str, module_name: str) -> list[PythonFunctionSpan]:
+def _javascript_function_spans(source: str, module_name: str) -> List[PythonFunctionSpan]:
     lines = source.splitlines()
-    spans: list[PythonFunctionSpan] = []
+    spans: List[PythonFunctionSpan] = []
     patterns = [
         re.compile(r"^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\("),
         re.compile(r"^\s*(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*(?::\s*[^=]+)?=>\s*\{"),
@@ -341,9 +347,9 @@ def _javascript_signature(line: str) -> str:
     return stripped.strip()
 
 
-def _java_method_spans(source: str, module_name: str) -> list[PythonFunctionSpan]:
+def _java_method_spans(source: str, module_name: str) -> List[PythonFunctionSpan]:
     lines = source.splitlines()
-    spans: list[PythonFunctionSpan] = []
+    spans: List[PythonFunctionSpan] = []
     class_name = module_name
     class_pattern = re.compile(r"^\s*(?:public\s+|private\s+|protected\s+)?(?:abstract\s+|final\s+)?class\s+([A-Za-z_$][\w$]*)\b")
     method_pattern = re.compile(
@@ -377,9 +383,9 @@ def _java_method_spans(source: str, module_name: str) -> list[PythonFunctionSpan
     return spans
 
 
-def _go_function_spans(source: str, module_name: str) -> list[PythonFunctionSpan]:
+def _go_function_spans(source: str, module_name: str) -> List[PythonFunctionSpan]:
     lines = source.splitlines()
-    spans: list[PythonFunctionSpan] = []
+    spans: List[PythonFunctionSpan] = []
     function_pattern = re.compile(
         r"^\s*func\s+(?:\([^)]*\)\s*)?([A-Za-z_][\w]*)\s*\([^)]*\)\s*(?:[A-Za-z_*][\w*]*(?:\[[^\]]+\])?|\([^)]*\))?\s*\{"
     )
@@ -400,9 +406,9 @@ def _go_function_spans(source: str, module_name: str) -> list[PythonFunctionSpan
     return spans
 
 
-def _rust_function_spans(source: str, module_name: str) -> list[PythonFunctionSpan]:
+def _rust_function_spans(source: str, module_name: str) -> List[PythonFunctionSpan]:
     lines = source.splitlines()
-    spans: list[PythonFunctionSpan] = []
+    spans: List[PythonFunctionSpan] = []
     function_pattern = re.compile(
         r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:unsafe\s+)?fn\s+([A-Za-z_]\w*)\s*(?:<[^>]+>)?\s*\([^)]*\)\s*(?:->\s*[^{]+)?\{"
     )
@@ -423,9 +429,9 @@ def _rust_function_spans(source: str, module_name: str) -> list[PythonFunctionSp
     return spans
 
 
-def _php_function_spans(source: str, module_name: str) -> list[PythonFunctionSpan]:
+def _php_function_spans(source: str, module_name: str) -> List[PythonFunctionSpan]:
     lines = source.splitlines()
-    spans: list[PythonFunctionSpan] = []
+    spans: List[PythonFunctionSpan] = []
     class_name = module_name
     class_pattern = re.compile(r"^\s*(?:final\s+|abstract\s+)?class\s+([A-Za-z_]\w*)\b")
     function_pattern = re.compile(
@@ -453,9 +459,9 @@ def _php_function_spans(source: str, module_name: str) -> list[PythonFunctionSpa
     return spans
 
 
-def _csharp_method_spans(source: str, module_name: str) -> list[PythonFunctionSpan]:
+def _csharp_method_spans(source: str, module_name: str) -> List[PythonFunctionSpan]:
     lines = source.splitlines()
-    spans: list[PythonFunctionSpan] = []
+    spans: List[PythonFunctionSpan] = []
     class_name = module_name
     class_pattern = re.compile(r"^\s*(?:public\s+|internal\s+|private\s+|protected\s+|abstract\s+|sealed\s+|static\s+)*class\s+([A-Za-z_]\w*)\b")
     method_pattern = re.compile(
@@ -488,10 +494,10 @@ def _csharp_method_spans(source: str, module_name: str) -> list[PythonFunctionSp
     return spans
 
 
-def _kotlin_function_spans(source: str, module_name: str) -> list[PythonFunctionSpan]:
+def _kotlin_function_spans(source: str, module_name: str) -> List[PythonFunctionSpan]:
     lines = source.splitlines()
-    spans: list[PythonFunctionSpan] = []
-    class_name: str | None = None
+    spans: List[PythonFunctionSpan] = []
+    class_name: Optional[str] = None
     class_pattern = re.compile(r"^\s*(?:data\s+|sealed\s+|open\s+|abstract\s+)?class\s+([A-Za-z_]\w*)\b")
     function_pattern = re.compile(
         r"^\s*(?:(?:public|private|protected|internal|open|override|suspend|inline|tailrec|operator)\s+)*fun\s+(?:[A-Za-z_]\w*\.)?([A-Za-z_]\w*)\s*(?:<[^>]+>)?\s*\([^)]*\)\s*(?::\s*[^{=]+)?\{"
@@ -519,9 +525,9 @@ def _kotlin_function_spans(source: str, module_name: str) -> list[PythonFunction
     return spans
 
 
-def _lua_function_spans(source: str, module_name: str) -> list[PythonFunctionSpan]:
+def _lua_function_spans(source: str, module_name: str) -> List[PythonFunctionSpan]:
     lines = source.splitlines()
-    spans: list[PythonFunctionSpan] = []
+    spans: List[PythonFunctionSpan] = []
     patterns = [
         re.compile(r"^\s*local\s+function\s+([A-Za-z_]\w*)\s*\("),
         re.compile(r"^\s*function\s+([A-Za-z_]\w*(?:[.:][A-Za-z_]\w*)*)\s*\("),
@@ -548,15 +554,15 @@ def _lua_function_spans(source: str, module_name: str) -> list[PythonFunctionSpa
 def _lua_qualified_function_name(module_name: str, raw_name: str) -> str:
     normalized = raw_name.replace(":", ".")
     if normalized.startswith("_M."):
-        normalized = normalized.removeprefix("_M.")
+        normalized = _remove_prefix(normalized, "_M.")
     if "." in normalized:
         return f"{module_name}.{normalized.split('.')[-1]}"
     return f"{module_name}.{normalized}"
 
 
-def _cpp_function_spans(source: str, module_name: str) -> list[PythonFunctionSpan]:
+def _cpp_function_spans(source: str, module_name: str) -> List[PythonFunctionSpan]:
     lines = source.splitlines()
-    spans: list[PythonFunctionSpan] = []
+    spans: List[PythonFunctionSpan] = []
     function_pattern = re.compile(
         r"^\s*(?:template\s*<[^>]+>\s*)?"
         r"[\w:<>~*&\s]+\s+"
@@ -583,9 +589,9 @@ def _cpp_function_spans(source: str, module_name: str) -> list[PythonFunctionSpa
     return spans
 
 
-def _ruby_function_spans(source: str, module_name: str) -> list[PythonFunctionSpan]:
+def _ruby_function_spans(source: str, module_name: str) -> List[PythonFunctionSpan]:
     lines = source.splitlines()
-    spans: list[PythonFunctionSpan] = []
+    spans: List[PythonFunctionSpan] = []
     class_name = module_name
     class_pattern = re.compile(r"^\s*class\s+([A-Za-z_]\w*)\b")
     function_pattern = re.compile(r"^\s*def\s+(?:self\.)?([A-Za-z_]\w*[!?=]?)\s*(?:\([^)]*\)|[^#]*)?")
@@ -611,10 +617,10 @@ def _ruby_function_spans(source: str, module_name: str) -> list[PythonFunctionSp
     return spans
 
 
-def _swift_function_spans(source: str, module_name: str) -> list[PythonFunctionSpan]:
+def _swift_function_spans(source: str, module_name: str) -> List[PythonFunctionSpan]:
     lines = source.splitlines()
-    spans: list[PythonFunctionSpan] = []
-    type_name: str | None = None
+    spans: List[PythonFunctionSpan] = []
+    type_name: Optional[str] = None
     type_pattern = re.compile(r"^\s*(?:public\s+|private\s+|internal\s+|open\s+|final\s+)?(?:class|struct|actor|enum)\s+([A-Za-z_]\w*)\b")
     function_pattern = re.compile(
         r"^\s*(?:(?:public|private|fileprivate|internal|open|static|class|final|override|mutating|nonmutating|async)\s+)*func\s+([A-Za-z_]\w*)\s*(?:<[^>]+>)?\s*\([^)]*\)\s*(?:async\s*)?(?:throws\s*)?(?:->\s*[^{]+)?\{"
@@ -642,7 +648,7 @@ def _swift_function_spans(source: str, module_name: str) -> list[PythonFunctionS
     return spans
 
 
-def _brace_span_end(lines: list[str], start_line: int) -> int:
+def _brace_span_end(lines: List[str], start_line: int) -> int:
     depth = 0
     seen_opening_brace = False
     for index in range(start_line, len(lines) + 1):
@@ -656,7 +662,7 @@ def _brace_span_end(lines: list[str], start_line: int) -> int:
     return start_line
 
 
-def _ruby_span_end(lines: list[str], start_line: int) -> int:
+def _ruby_span_end(lines: List[str], start_line: int) -> int:
     depth = 0
     for index in range(start_line, len(lines) + 1):
         stripped = lines[index - 1].strip()
@@ -669,7 +675,7 @@ def _ruby_span_end(lines: list[str], start_line: int) -> int:
     return start_line
 
 
-def _lua_span_end(lines: list[str], start_line: int) -> int:
+def _lua_span_end(lines: List[str], start_line: int) -> int:
     depth = 0
     for index in range(start_line, len(lines) + 1):
         stripped = _strip_lua_comment(lines[index - 1])

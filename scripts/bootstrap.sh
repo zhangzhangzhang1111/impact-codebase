@@ -2,7 +2,7 @@
 set -eu
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-MIN_PYTHON="3.12"
+MIN_PYTHON="3.6"
 
 info() {
   printf '%s\n' "$*"
@@ -40,7 +40,7 @@ minimum = tuple(int(part) for part in sys.argv[1].split("."))
 current = sys.version_info[:2]
 if current < minimum:
     raise SystemExit(
-        f"Python {sys.argv[1]}+ is required, found {sys.version.split()[0]}"
+        "Python {}+ is required, found {}".format(sys.argv[1], sys.version.split()[0])
     )
 PY
 

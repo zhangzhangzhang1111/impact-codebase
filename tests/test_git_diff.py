@@ -1,3 +1,4 @@
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Union
 import subprocess
 import tempfile
 import textwrap
@@ -921,8 +922,9 @@ class GitDiffFunctionExtractorTests(unittest.TestCase):
             ["git", *args],
             cwd=repo,
             check=True,
-            text=True,
-            capture_output=True,
+            universal_newlines=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
 
 

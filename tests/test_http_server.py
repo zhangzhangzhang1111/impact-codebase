@@ -1,3 +1,4 @@
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Union
 import http.client
 import json
 import tempfile
@@ -271,6 +272,10 @@ class HttpServerTests(unittest.TestCase):
         self.assertEqual(configs["deepseek"]["model"], "deepseek-reasoner")
         self.assertEqual(configs["deepseek"]["api_key"], "sk-test")
         self.assertTrue(configs["deepseek"]["api_key_configured"])
+        self.assertEqual(configs["deepseek"]["api_format"], "openai_compatible")
+        self.assertEqual(configs["anthropic"]["api_format"], "anthropic_messages")
+        self.assertEqual(configs["anthropic-compatible"]["api_format"], "anthropic_messages")
+        self.assertFalse(configs["anthropic-compatible"]["supports_response_format"])
         self.assertEqual(default_response.status, 200)
         self.assertEqual(default_payload["default_provider_id"], "deepseek")
         self.assertEqual(updated_payload["default_provider_id"], "deepseek")
@@ -327,6 +332,7 @@ class HttpServerTests(unittest.TestCase):
         self.assertEqual(payload["model"], "deepseek-chat")
         self.assertEqual(analyzer.ai_client.calls[0]["provider_id"], "deepseek")
         self.assertIn("Return JSON", analyzer.ai_client.calls[0]["prompt"])
+        self.assertEqual(analyzer.ai_client.calls[0]["max_output_tokens"], 256)
 
     def test_analysis_submission_and_history_endpoints(self):
         request_payload = {

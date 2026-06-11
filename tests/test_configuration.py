@@ -1,3 +1,4 @@
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Union
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,7 +15,7 @@ class ConfigurationTests(unittest.TestCase):
         providers = provider_catalog()
         provider_ids = {provider.id for provider in providers}
 
-        self.assertTrue({"openai", "anthropic", "gemini"}.issubset(provider_ids))
+        self.assertTrue({"openai", "anthropic", "anthropic-compatible", "gemini"}.issubset(provider_ids))
         self.assertTrue({"deepseek", "qwen", "zhipu", "moonshot", "doubao", "hunyuan", "ernie"}.issubset(provider_ids))
 
         for provider in providers:

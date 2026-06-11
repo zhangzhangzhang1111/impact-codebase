@@ -1,7 +1,7 @@
 import json
 import inspect
 from dataclasses import dataclass, field
-from typing import Callable, Protocol
+from typing import Callable, Any, Dict, List, Mapping, Optional, Set, Tuple, Union
 
 from impact_ai.ai_providers import AIProvider, provider_catalog
 from impact_ai.knowledge_graph import CallGraph, ChangedFunction, KnowledgeGraph
@@ -11,7 +11,7 @@ from impact_ai.review_standards import InMemoryReviewStandardStore, standard_for
 from impact_ai.token_budget import TokenBudget
 
 
-class AIClient(Protocol):
+class AIClient:
     def complete(self, prompt: str, provider: AIProvider, max_output_tokens: int) -> dict:
         raise NotImplementedError
 
@@ -19,15 +19,15 @@ class AIClient(Protocol):
 @dataclass(frozen=True)
 class ImpactAnalysisResult:
     project_name: str
-    changed_functions: list[ChangedFunction]
+    changed_functions: List[ChangedFunction]
     call_graph: CallGraph
     impact_summary: str
-    review_findings: list[str] = field(default_factory=list)
-    test_cases: list[str] = field(default_factory=list)
-    structured_review_findings: list[dict] = field(default_factory=list)
-    structured_test_cases: list[dict] = field(default_factory=list)
+    review_findings: List[str] = field(default_factory=list)
+    test_cases: List[str] = field(default_factory=list)
+    structured_review_findings: List[dict] = field(default_factory=list)
+    structured_test_cases: List[dict] = field(default_factory=list)
     prompt_chunks: int = 0
-    token_usage: dict[str, object] = field(default_factory=dict)
+    token_usage: Dict[str, object] = field(default_factory=dict)
 
 
 class ImpactAnalyzer:
@@ -36,8 +36,8 @@ class ImpactAnalyzer:
         knowledge_graph: KnowledgeGraph,
         ai_client: AIClient,
         profile_loader: ProjectProfileLoader,
-        token_budget: TokenBudget | None = None,
-        review_standard_store: InMemoryReviewStandardStore | None = None,
+        token_budget: Optional[TokenBudget] = None,
+        review_standard_store: Optional[InMemoryReviewStandardStore] = None,
     ):
         self.knowledge_graph = knowledge_graph
         self.ai_client = ai_client
@@ -49,7 +49,7 @@ class ImpactAnalyzer:
     def analyze(
         self,
         request: ImpactAnalysisRequest,
-        progress: Callable[[str], None] | None = None,
+        progress: Optional[Callable[[str], None]] = None,
     ) -> ImpactAnalysisResult:
         provider = self.providers[request.provider_id]
         budget = _effective_budget(provider, self.token_budget)
@@ -116,7 +116,7 @@ class ImpactAnalyzer:
     def _build_prompt_payload(
         self,
         request: ImpactAnalysisRequest,
-        changed_functions: list[ChangedFunction],
+        changed_functions: List[ChangedFunction],
         call_graph: CallGraph,
     ) -> dict:
         profile = self.profile_loader.load(request.project_name)
@@ -197,7 +197,7 @@ class ImpactAnalyzer:
             return self.review_standard_store.get(language)
         return standard_for_language(language)
 
-    def _build_prompt_chunks(self, payload: dict, budget: TokenBudget) -> list[str]:
+    def _build_prompt_chunks(self, payload: dict, budget: TokenBudget) -> List[str]:
         context_payload = {
             "changed_functions": payload["changed_functions"],
             "call_graph_summary": payload["call_graph_summary"],
@@ -219,8 +219,8 @@ class ImpactAnalyzer:
         return prompt_chunks
 
 
-def _chunk_context_for_prompt(payload: dict, context_text: str, budget: TokenBudget, max_tokens: int) -> list[str]:
-    chunks: list[str] = []
+def _chunk_context_for_prompt(payload: dict, context_text: str, budget: TokenBudget, max_tokens: int) -> List[str]:
+    chunks: List[str] = []
     current = ""
 
     for word in context_text.split():
@@ -249,7 +249,7 @@ def _chunk_context_for_prompt(payload: dict, context_text: str, budget: TokenBud
     return chunks or [""]
 
 
-def _call_graph_summary(changed_functions: list[ChangedFunction], call_graph: CallGraph) -> dict:
+def _call_graph_summary(changed_functions: List[ChangedFunction], call_graph: CallGraph) -> dict:
     summary = {}
     for function in changed_functions:
         name = function.qualified_name
@@ -265,7 +265,7 @@ def _call_graph_summary(changed_functions: list[ChangedFunction], call_graph: Ca
     return summary
 
 
-def _effective_budget(provider: AIProvider, configured_budget: TokenBudget | None) -> TokenBudget:
+def _effective_budget(provider: AIProvider, configured_budget: Optional[TokenBudget]) -> TokenBudget:
     if configured_budget is None:
         return TokenBudget(
             max_input_tokens=provider.max_input_tokens,
@@ -283,8 +283,8 @@ def _effective_budget(provider: AIProvider, configured_budget: TokenBudget | Non
     )
 
 
-def _split_oversized_context_token(payload: dict, token: str, budget: TokenBudget, max_tokens: int) -> list[str]:
-    chunks: list[str] = []
+def _split_oversized_context_token(payload: dict, token: str, budget: TokenBudget, max_tokens: int) -> List[str]:
+    chunks: List[str] = []
     start = 0
     while start < len(token):
         best_size = 0
@@ -326,9 +326,9 @@ def _prompt_chunk_json(payload: dict, context_chunk: str, chunk_index: int, tota
     return json.dumps(chunk_payload, ensure_ascii=False, indent=2)
 
 
-def _flatten_unique_text(values: object) -> list[str]:
-    seen: set[str] = set()
-    flattened: list[str] = []
+def _flatten_unique_text(values: object) -> List[str]:
+    seen: Set[str] = set()
+    flattened: List[str] = []
     for value_list in values:
         if not isinstance(value_list, list):
             continue
@@ -340,9 +340,9 @@ def _flatten_unique_text(values: object) -> list[str]:
     return flattened
 
 
-def _flatten_unique_dicts(values: object) -> list[dict]:
-    seen: set[str] = set()
-    flattened: list[dict] = []
+def _flatten_unique_dicts(values: object) -> List[dict]:
+    seen: Set[str] = set()
+    flattened: List[dict] = []
     for value_list in values:
         if not isinstance(value_list, list):
             continue
@@ -376,6 +376,6 @@ def _call_with_optional_progress(method, *args, progress):
     return method(*args)
 
 
-def _report(progress: Callable[[str], None] | None, stage: str) -> None:
+def _report(progress: Optional[Callable[[str], None]], stage: str) -> None:
     if progress:
         progress(stage)

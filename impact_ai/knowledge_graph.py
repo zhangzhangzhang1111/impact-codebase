@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Union
 
 from impact_ai.models import ImpactAnalysisRequest
 
@@ -17,22 +17,22 @@ class ChangedFunction:
 @dataclass(frozen=True)
 class DiffAnalysis:
     project_name: str
-    changed_functions: list[ChangedFunction]
+    changed_functions: List[ChangedFunction]
 
 
 @dataclass(frozen=True)
 class CallGraph:
     project_name: str
     depth: int
-    inbound: dict[str, list[str]] = field(default_factory=dict)
-    outbound: dict[str, list[str]] = field(default_factory=dict)
-    trace_status: dict[str, str] = field(default_factory=dict)
-    trace_errors: dict[str, str] = field(default_factory=dict)
+    inbound: Dict[str, List[str]] = field(default_factory=dict)
+    outbound: Dict[str, List[str]] = field(default_factory=dict)
+    trace_status: Dict[str, str] = field(default_factory=dict)
+    trace_errors: Dict[str, str] = field(default_factory=dict)
 
 
-class KnowledgeGraph(Protocol):
+class KnowledgeGraph:
     def changed_functions(self, request: ImpactAnalysisRequest) -> DiffAnalysis:
         raise NotImplementedError
 
-    def two_hop_call_graph(self, project_name: str, functions: list[ChangedFunction], depth: int = 2) -> CallGraph:
+    def two_hop_call_graph(self, project_name: str, functions: List[ChangedFunction], depth: int = 2) -> CallGraph:
         raise NotImplementedError

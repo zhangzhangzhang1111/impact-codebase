@@ -1,3 +1,4 @@
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Union
 from dataclasses import dataclass
 
 
@@ -13,9 +14,11 @@ class AIProvider:
     default_base_url: str
     max_input_tokens: int
     max_output_tokens: int
+    api_format: str = "openai_compatible"
+    supports_response_format: bool = True
 
 
-def provider_catalog() -> list[AIProvider]:
+def provider_catalog() -> List[AIProvider]:
     """Supported mainstream global and China-market AI providers."""
     return [
         AIProvider(
@@ -41,6 +44,21 @@ def provider_catalog() -> list[AIProvider]:
             default_base_url="https://api.anthropic.com/v1",
             max_input_tokens=200_000,
             max_output_tokens=16_384,
+            api_format="anthropic_messages",
+        ),
+        AIProvider(
+            id="anthropic-compatible",
+            name="Anthropic Compatible",
+            family="global",
+            default_model="claude-3-7-sonnet-latest",
+            model_env="ANTHROPIC_COMPATIBLE_MODEL",
+            api_key_env="ANTHROPIC_COMPATIBLE_API_KEY",
+            base_url_env="ANTHROPIC_COMPATIBLE_BASE_URL",
+            default_base_url="http://localhost:53453/v1",
+            max_input_tokens=200_000,
+            max_output_tokens=16_384,
+            api_format="anthropic_messages",
+            supports_response_format=False,
         ),
         AIProvider(
             id="gemini",
@@ -53,6 +71,7 @@ def provider_catalog() -> list[AIProvider]:
             default_base_url="https://generativelanguage.googleapis.com/v1beta",
             max_input_tokens=1_000_000,
             max_output_tokens=65_536,
+            api_format="gemini_generate_content",
         ),
         AIProvider(
             id="deepseek",

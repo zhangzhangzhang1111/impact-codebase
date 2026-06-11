@@ -1,7 +1,8 @@
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Union
 import json
 import threading
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -15,10 +16,10 @@ class AnalysisJob:
     request: ImpactAnalysisRequest
     created_at: str
     updated_at: str
-    result: dict | None = None
-    error: str | None = None
-    progress: list[str] | None = None
-    logs: list[dict] | None = None
+    result: Optional[Dict] = None
+    error: Optional[str] = None
+    progress: Optional[List[str]] = None
+    logs: Optional[List[Dict]] = None
 
     def to_dict(self) -> dict:
         return {
@@ -36,12 +37,12 @@ class AnalysisJob:
 
 class InMemoryJobStore:
     def __init__(self):
-        self._jobs: dict[str, AnalysisJob] = {}
+        self._jobs: Dict[str, AnalysisJob] = {}
         self._lock = threading.RLock()
 
     def create(self, request: ImpactAnalysisRequest) -> AnalysisJob:
         with self._lock:
-            now = datetime.now(UTC).isoformat()
+            now = _utc_now()
             job = AnalysisJob(
                 id=uuid4().hex,
                 status="queued",
@@ -54,11 +55,11 @@ class InMemoryJobStore:
             self._jobs[job.id] = job
             return job
 
-    def list(self) -> list[AnalysisJob]:
+    def list(self) -> List[AnalysisJob]:
         with self._lock:
             return sorted(self._jobs.values(), key=lambda job: job.created_at, reverse=True)
 
-    def get(self, job_id: str) -> AnalysisJob | None:
+    def get(self, job_id: str) -> Optional[AnalysisJob]:
         with self._lock:
             return self._jobs.get(job_id)
 
@@ -70,7 +71,7 @@ class InMemoryJobStore:
                 status="running",
                 request=job.request,
                 created_at=job.created_at,
-                updated_at=datetime.now(UTC).isoformat(),
+                updated_at=_utc_now(),
                 result=job.result,
                 error=job.error,
                 progress=[*(job.progress or []), "running"],
@@ -87,7 +88,7 @@ class InMemoryJobStore:
                 status=job.status,
                 request=job.request,
                 created_at=job.created_at,
-                updated_at=datetime.now(UTC).isoformat(),
+                updated_at=_utc_now(),
                 result=job.result,
                 error=job.error,
                 progress=[*(job.progress or []), stage],
@@ -104,7 +105,7 @@ class InMemoryJobStore:
                 status="completed",
                 request=job.request,
                 created_at=job.created_at,
-                updated_at=datetime.now(UTC).isoformat(),
+                updated_at=_utc_now(),
                 result=result,
                 error=None,
                 progress=[*(job.progress or []), "completed"],
@@ -121,7 +122,7 @@ class InMemoryJobStore:
                 status="failed",
                 request=job.request,
                 created_at=job.created_at,
-                updated_at=datetime.now(UTC).isoformat(),
+                updated_at=_utc_now(),
                 result=None,
                 error=error,
                 progress=[*(job.progress or []), "failed"],
@@ -196,7 +197,7 @@ class JsonFileJobStore(InMemoryJobStore):
 
 def _log_entry(stage: str, message: str, level: str = "info", detail: str = "") -> dict:
     return {
-        "time": datetime.now(UTC).isoformat(),
+        "time": _utc_now(),
         "stage": stage,
         "level": level,
         "message": message,
@@ -220,3 +221,7 @@ def _stage_message(stage: str) -> str:
         "completed": "分析完成",
         "failed": "分析失败",
     }.get(stage, stage)
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()

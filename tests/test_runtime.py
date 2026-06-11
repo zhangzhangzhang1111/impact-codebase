@@ -1,13 +1,21 @@
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Union
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from impact_ai.analysis import ImpactAnalyzer
 from impact_ai.ai_client import OpenAICompatibleClient
 from impact_ai.codebase_memory_graph import CodebaseMemoryKnowledgeGraph
 from impact_ai.job_store import JsonFileJobStore
-from impact_ai.runtime import build_analyzer_from_env, create_configured_server
+from impact_ai.runtime import (
+    build_analyzer_from_env,
+    create_configured_server,
+    start_managed_codebase_memory_process,
+    with_claude_network_env,
+)
 
 
 class RuntimeAssemblyTests(unittest.TestCase):
@@ -68,6 +76,32 @@ class RuntimeAssemblyTests(unittest.TestCase):
             analyzer = build_analyzer_from_env({"CODEBASE_MEMORY_CACHE_DIR": str(cache_dir)})
 
             self.assertEqual(analyzer.knowledge_graph.client.cache_dir, cache_dir)
+
+    def test_with_claude_network_env_merges_proxy_bypass_without_secrets(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            home = Path(temp_dir)
+            claude_dir = home / ".claude"
+            claude_dir.mkdir()
+            (claude_dir / "settings.json").write_text(
+                json.dumps(
+                    {
+                        "env": {
+                            "ANTHROPIC_API_KEY": "secret-token",
+                            "ANTHROPIC_BASE_URL": "https://example.test",
+                            "NO_PROXY": "hithink-oslm.myhexin.com,.myhexin.com",
+                            "no_proxy": "hithink-oslm.myhexin.com,.myhexin.com",
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.dict(os.environ, {"HOME": str(home), "NO_PROXY": "localhost", "no_proxy": "localhost"}, clear=False):
+                merged = with_claude_network_env({})
+
+        self.assertEqual(merged["NO_PROXY"], "localhost,hithink-oslm.myhexin.com,.myhexin.com")
+        self.assertEqual(merged["no_proxy"], "localhost,hithink-oslm.myhexin.com,.myhexin.com")
+        self.assertNotIn("ANTHROPIC_API_KEY", merged)
+        self.assertNotIn("ANTHROPIC_BASE_URL", merged)
 
     def test_create_configured_server_attaches_analyzer(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -133,6 +167,96 @@ class RuntimeAssemblyTests(unittest.TestCase):
             finally:
                 server.server_close()
 
+    def test_create_configured_server_seeds_model_config_from_template(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            model_config_path = Path(temp_dir) / ".impact-ai" / "model_config.json"
+            template_path = Path(temp_dir) / "model_config.default.json"
+            template_path.write_text(
+                json.dumps(
+                    {
+                        "default_provider_id": "deepseek",
+                        "configs": [
+                            {
+                                "provider_id": "deepseek",
+                                "model": "deepseek-chat",
+                                "base_url": "https://api.deepseek.com/v1",
+                                "api_key": "",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            server = create_configured_server(
+                ("127.0.0.1", 0),
+                env={
+                    "IMPACT_AI_MODEL_CONFIG_PATH": str(model_config_path),
+                    "IMPACT_AI_DEFAULT_MODEL_CONFIG_PATH": str(template_path),
+                },
+                codebase_memory_client=FakeCodebaseMemoryClient(),
+            )
+            try:
+                self.assertTrue(model_config_path.exists())
+                payload = json.loads(model_config_path.read_text(encoding="utf-8"))
+                self.assertEqual(payload["default_provider_id"], "deepseek")
+                self.assertEqual(payload["configs"][0]["api_key"], "")
+            finally:
+                server.server_close()
+
+    def test_create_configured_server_does_not_overwrite_existing_model_config(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            model_config_path = Path(temp_dir) / ".impact-ai" / "model_config.json"
+            template_path = Path(temp_dir) / "model_config.default.json"
+            model_config_path.parent.mkdir(parents=True)
+            model_config_path.write_text(
+                json.dumps(
+                    {
+                        "default_provider_id": "deepseek",
+                        "configs": [
+                            {
+                                "provider_id": "deepseek",
+                                "model": "custom-model",
+                                "base_url": "https://example.test/v1",
+                                "api_key": "local-secret",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            template_path.write_text(
+                json.dumps(
+                    {
+                        "default_provider_id": "openai",
+                        "configs": [
+                            {
+                                "provider_id": "openai",
+                                "model": "gpt-4.1",
+                                "base_url": "https://api.openai.com/v1",
+                                "api_key": "",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            server = create_configured_server(
+                ("127.0.0.1", 0),
+                env={
+                    "IMPACT_AI_MODEL_CONFIG_PATH": str(model_config_path),
+                    "IMPACT_AI_DEFAULT_MODEL_CONFIG_PATH": str(template_path),
+                },
+                codebase_memory_client=FakeCodebaseMemoryClient(),
+            )
+            try:
+                payload = json.loads(model_config_path.read_text(encoding="utf-8"))
+                self.assertEqual(payload["configs"][0]["model"], "custom-model")
+                self.assertEqual(payload["configs"][0]["api_key"], "local-secret")
+            finally:
+                server.server_close()
+
     def test_create_configured_server_applies_persisted_review_standards(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             review_standards_path = Path(temp_dir) / "review_standards.json"
@@ -195,6 +319,26 @@ class RuntimeAssemblyTests(unittest.TestCase):
             self.assertIsNone(server.codebase_memory_process.process)
         finally:
             server.server_close()
+
+    def test_start_managed_codebase_memory_process_launches_ui_without_blocking(self):
+        launcher = FakeProcessLauncher()
+        with patch("impact_ai.runtime.subprocess.run") as blocking_run:
+            managed_process = start_managed_codebase_memory_process(
+                {
+                    "CODEBASE_MEMORY_ENABLE_UI": "true",
+                    "CODEBASE_MEMORY_UI_PORT": "9900",
+                },
+                launcher=launcher,
+            )
+
+        self.assertEqual(blocking_run.call_count, 0)
+        self.assertEqual(launcher.calls[0][0], ["codebase-memory-mcp", "--ui=true", "--port=9900"])
+        self.assertEqual(launcher.calls[1][0], ["codebase-memory-mcp"])
+
+        managed_process.close()
+
+        self.assertTrue(launcher.processes[0].terminated)
+        self.assertTrue(launcher.processes[1].terminated)
 
 
 class FakeCodebaseMemoryClient:

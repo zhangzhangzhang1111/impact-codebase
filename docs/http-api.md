@@ -329,7 +329,8 @@ Response `200`:
       "base_url_env": "DEEPSEEK_BASE_URL",
       "default_base_url": "https://api.deepseek.com/v1",
       "max_input_tokens": 64000,
-      "max_output_tokens": 8192
+      "max_output_tokens": 8192,
+      "api_format": "openai_compatible"
     }
   ]
 }
@@ -360,7 +361,9 @@ Response `200`:
       "default_model": "deepseek-chat",
       "default_base_url": "https://api.deepseek.com/v1",
       "max_input_tokens": 64000,
-      "max_output_tokens": 8192
+      "max_output_tokens": 8192,
+      "api_format": "openai_compatible",
+      "supports_response_format": true
     }
   ]
 }

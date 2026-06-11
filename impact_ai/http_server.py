@@ -4,8 +4,9 @@ import os
 import signal
 import threading
 from dataclasses import asdict
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Protocol
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import ThreadingMixIn
+from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Union
 from urllib.parse import unquote
 
 from impact_ai.analysis import ImpactAnalysisResult
@@ -23,22 +24,26 @@ REQUIRED_ANALYSIS_FIELDS = (
     "after_commit",
     "provider_id",
 )
-MODEL_TEST_TIMEOUT_SECONDS = 10
+MODEL_TEST_TIMEOUT_SECONDS = 180
 
 
-class Analyzer(Protocol):
+class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+    daemon_threads = True
+
+
+class Analyzer:
     def analyze(self, request: ImpactAnalysisRequest) -> ImpactAnalysisResult:
         raise NotImplementedError
 
 
 def create_server(
-    address: tuple[str, int],
-    analyzer: Analyzer | None = None,
+    address: Tuple[str, int],
+    analyzer: Optional[Analyzer] = None,
     execute_async: bool = False,
-    job_store: InMemoryJobStore | None = None,
-    profile_loader: ProjectProfileLoader | None = None,
-    model_config_store: InMemoryModelConfigStore | None = None,
-    review_standard_store: InMemoryReviewStandardStore | None = None,
+    job_store: Optional[InMemoryJobStore] = None,
+    profile_loader: Optional[ProjectProfileLoader] = None,
+    model_config_store: Optional[InMemoryModelConfigStore] = None,
+    review_standard_store: Optional[InMemoryReviewStandardStore] = None,
 ) -> ThreadingHTTPServer:
     server = ThreadingHTTPServer(address, ImpactRequestHandler)
     server.job_store = job_store or InMemoryJobStore()
@@ -63,7 +68,7 @@ class ImpactRequestHandler(BaseHTTPRequestHandler):
             return
 
         if self.path.startswith("/api/analyses/"):
-            job_id = unquote(self.path.removeprefix("/api/analyses/")).strip("/")
+            job_id = unquote(_remove_prefix(self.path, "/api/analyses/")).strip("/")
             job = self.server.job_store.get(job_id)
             if job is None:
                 self._send_json({"error": "not_found"}, status=404)
@@ -84,7 +89,7 @@ class ImpactRequestHandler(BaseHTTPRequestHandler):
             return
 
         if self.path.startswith("/api/review-standards/"):
-            language = unquote(self.path.removeprefix("/api/review-standards/")).strip("/")
+            language = unquote(_remove_prefix(self.path, "/api/review-standards/")).strip("/")
             self._send_json(asdict(self.server.review_standard_store.get(language)))
             return
 
@@ -104,7 +109,7 @@ class ImpactRequestHandler(BaseHTTPRequestHandler):
 
     def do_PUT(self) -> None:
         if self.path.startswith("/api/model-configs/"):
-            provider_id = unquote(self.path.removeprefix("/api/model-configs/")).strip("/")
+            provider_id = unquote(_remove_prefix(self.path, "/api/model-configs/")).strip("/")
             provider = _provider_by_id(provider_id)
             if provider is None:
                 self._send_json({"error": "unsupported_provider", "provider_id": provider_id}, status=404)
@@ -134,7 +139,7 @@ class ImpactRequestHandler(BaseHTTPRequestHandler):
             return
 
         if self.path.startswith("/api/review-standards/"):
-            language = unquote(self.path.removeprefix("/api/review-standards/")).strip("/")
+            language = unquote(_remove_prefix(self.path, "/api/review-standards/")).strip("/")
             try:
                 payload = self._read_json()
                 sections = payload["sections"]
@@ -190,7 +195,7 @@ class ImpactRequestHandler(BaseHTTPRequestHandler):
             return
 
         if self.path.startswith("/api/model-configs/") and self.path.endswith("/test"):
-            provider_id = unquote(self.path.removeprefix("/api/model-configs/").removesuffix("/test")).strip("/")
+            provider_id = unquote(_remove_suffix(_remove_prefix(self.path, "/api/model-configs/"), "/test")).strip("/")
             provider = _provider_by_id(provider_id)
             if provider is None:
                 self._send_json({"error": "unsupported_provider", "provider_id": provider_id}, status=404)
@@ -294,7 +299,7 @@ class ImpactRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         return
 
-    def _send_json(self, payload: dict[str, Any], status: int = 200) -> None:
+    def _send_json(self, payload: Dict[str, Any], status: int = 200) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -302,7 +307,7 @@ class ImpactRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _read_json(self) -> dict[str, Any]:
+    def _read_json(self) -> Dict[str, Any]:
         content_length = int(self.headers.get("Content-Length", "0"))
         return json.loads(self.rfile.read(content_length).decode("utf-8"))
 
@@ -1977,7 +1982,7 @@ def _dashboard_html() -> str:
 </html>"""
 
 
-def _analysis_result_to_dict(result: ImpactAnalysisResult) -> dict[str, Any]:
+def _analysis_result_to_dict(result: ImpactAnalysisResult) -> Dict[str, Any]:
     return {
         "project_name": result.project_name,
         "changed_functions": [asdict(function) for function in result.changed_functions],
@@ -1992,7 +1997,7 @@ def _analysis_result_to_dict(result: ImpactAnalysisResult) -> dict[str, Any]:
     }
 
 
-def _model_config_catalog(model_config_store: InMemoryModelConfigStore) -> dict[str, Any]:
+def _model_config_catalog(model_config_store: InMemoryModelConfigStore) -> Dict[str, Any]:
     configured = {config.provider_id: config for config in model_config_store.list()}
     default_provider_id = model_config_store.default_provider_id()
     return {
@@ -2008,7 +2013,7 @@ def _model_config_catalog(model_config_store: InMemoryModelConfigStore) -> dict[
     }
 
 
-def _model_config_to_public_dict(config: ModelConfig, provider, is_default: bool = False) -> dict[str, Any]:
+def _model_config_to_public_dict(config: ModelConfig, provider, is_default: bool = False) -> Dict[str, Any]:
     model = config.model or provider.default_model
     base_url = config.base_url or provider.default_base_url
     return {
@@ -2027,10 +2032,12 @@ def _model_config_to_public_dict(config: ModelConfig, provider, is_default: bool
         "default_base_url": provider.default_base_url,
         "max_input_tokens": provider.max_input_tokens,
         "max_output_tokens": provider.max_output_tokens,
+        "api_format": provider.api_format,
+        "supports_response_format": provider.supports_response_format,
     }
 
 
-def _apply_model_config_to_analyzer(analyzer: Analyzer | None, config: ModelConfig) -> None:
+def _apply_model_config_to_analyzer(analyzer: Optional[Analyzer], config: ModelConfig) -> None:
     if analyzer is None or not hasattr(analyzer, "ai_client"):
         return
     provider = _provider_by_id(config.provider_id)
@@ -2051,7 +2058,7 @@ def _apply_model_config_to_analyzer(analyzer: Analyzer | None, config: ModelConf
         ai_client.api_keys[provider.api_key_env] = config.api_key
 
 
-def _apply_review_standard_to_analyzer(analyzer: Analyzer | None, standard) -> None:
+def _apply_review_standard_to_analyzer(analyzer: Optional[Analyzer], standard) -> None:
     if analyzer is None or not hasattr(analyzer, "review_standard_store") or analyzer.review_standard_store is None:
         return
     analyzer.review_standard_store.save(standard.language, standard.sections)
@@ -2067,14 +2074,14 @@ def _model_name_for_analyzer(analyzer: Analyzer, provider) -> str:
 
 
 def _test_model_with_timeout(ai_client, provider) -> dict:
-    result: dict[str, Any] = {}
+    result: Dict[str, Any] = {}
 
     def run_probe() -> None:
         try:
             result["response"] = ai_client.complete(
                 "Return JSON exactly as {\"ok\": true, \"message\": \"model is reachable\"}.",
                 provider=provider,
-                max_output_tokens=64,
+                max_output_tokens=256,
             )
         except Exception as error:
             result["error"] = error
@@ -2089,7 +2096,7 @@ def _test_model_with_timeout(ai_client, provider) -> dict:
     return result.get("response", {})
 
 
-def _invalid_analysis_fields(payload: dict[str, Any]) -> list[str]:
+def _invalid_analysis_fields(payload: Dict[str, Any]) -> List[str]:
     invalid = []
     for field in REQUIRED_ANALYSIS_FIELDS:
         value = payload.get(field)
@@ -2105,14 +2112,14 @@ def _invalid_analysis_fields(payload: dict[str, Any]) -> list[str]:
     return invalid
 
 
-def _analysis_project_name(payload: dict[str, Any]) -> str:
+def _analysis_project_name(payload: Dict[str, Any]) -> str:
     project_name = payload.get("project_name")
     if isinstance(project_name, str) and project_name.strip():
         return project_name.strip()
     return _default_project_name_from_git_url(str(payload.get("git_url", ""))) or "project"
 
 
-def _analysis_call_graph_depth(payload: dict[str, Any]) -> int:
+def _analysis_call_graph_depth(payload: Dict[str, Any]) -> int:
     raw_depth = payload.get("call_graph_depth", 2)
     try:
         depth = int(raw_depth)
@@ -2137,7 +2144,7 @@ def _default_project_name_from_git_url(git_url: str) -> str:
     return "-".join(selected)
 
 
-def _supported_provider_ids() -> list[str]:
+def _supported_provider_ids() -> List[str]:
     return [provider.id for provider in provider_catalog()]
 
 
@@ -2145,14 +2152,22 @@ def _provider_by_id(provider_id: str):
     return next((provider for provider in provider_catalog() if provider.id == provider_id), None)
 
 
-def _business_context_project_from_path(path: str) -> str | None:
+def _business_context_project_from_path(path: str) -> Optional[str]:
     if not path.startswith("/api/projects/") or not path.endswith("/business-context"):
         return None
-    project_name = path.removeprefix("/api/projects/").removesuffix("/business-context").strip("/")
+    project_name = _remove_suffix(_remove_prefix(path, "/api/projects/"), "/business-context").strip("/")
     return unquote(project_name) if project_name else None
 
 
-def _profile_to_dict(profile: ProjectProfile) -> dict[str, Any]:
+def _remove_prefix(value: str, prefix: str) -> str:
+    return value[len(prefix):] if value.startswith(prefix) else value
+
+
+def _remove_suffix(value: str, suffix: str) -> str:
+    return value[:-len(suffix)] if suffix and value.endswith(suffix) else value
+
+
+def _profile_to_dict(profile: ProjectProfile) -> Dict[str, Any]:
     return {
         "project_name": profile.project_name,
         "business_context": profile.business_context,

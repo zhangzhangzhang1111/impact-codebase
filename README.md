@@ -50,11 +50,19 @@ vendor/codebase-memory-mcp/linux-arm64/codebase-memory-mcp.tar.gz
 
 运行依赖：
 
-- Python 3.12 或更高版本
+- Python 3.6 或更高版本
 - Git
 - tar
 
-Python 服务侧当前只使用标准库，`requirements.txt` 仅作为部署脚本的稳定依赖入口。
+Python 3.6 需要 `dataclasses` backport；仓库已将对应 wheel 放在 `vendor/python/`，`requirements.txt` 默认只从本地 wheel 安装依赖，`./scripts/run.sh` 也会自动把这些 wheel 加入 `PYTHONPATH`。
+
+仓库内置脱敏模型配置模板：
+
+```text
+config/model_config.default.json
+```
+
+首次启动且 `.impact-ai/model_config.json` 不存在时，服务会自动复制该模板作为本地运行配置。模板不包含任何 API Key，默认分析模型为 `deepseek`；部署后只需要在页面或本地 `.impact-ai/model_config.json` 中填入对应 provider 的 API Key 即可使用。`.impact-ai/` 目录仍然被 Git 忽略，用来保存本机真实密钥和运行历史。
 
 ## 快速启动
 
@@ -76,7 +84,7 @@ http://127.0.0.1:8080
 IMPACT_AI_HOST=0.0.0.0 IMPACT_AI_PORT=8080 ./scripts/run.sh
 ```
 
-启动 HTTP 服务时默认会一起启动托管的 `codebase-memory-mcp` 子进程；关闭 HTTP 服务时也会停止该子进程。
+启动 HTTP 服务时默认会一起启动托管的 `codebase-memory-mcp` MCP/UI 子进程；这些子进程以非阻塞方式启动，关闭 HTTP 服务时也会停止。
 
 ## Release 产物
 
@@ -101,6 +109,8 @@ release 包包含：
 - 启动和依赖脚本
 - `.codebase-memory` 初始图谱产物
 - Linux/macOS 四个平台的 `codebase-memory-mcp` 运行时归档
+- Python 3.6 所需的离线 wheel 依赖
+- 脱敏默认模型配置模板
 
 解压后运行：
 
@@ -153,8 +163,11 @@ OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_MODEL
 DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL / DEEPSEEK_MODEL
 QWEN_API_KEY / QWEN_BASE_URL / QWEN_MODEL
 ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL / ANTHROPIC_MODEL
+ANTHROPIC_COMPATIBLE_API_KEY / ANTHROPIC_COMPATIBLE_BASE_URL / ANTHROPIC_COMPATIBLE_MODEL
 GEMINI_API_KEY / GEMINI_BASE_URL / GEMINI_MODEL
 ```
+
+`anthropic-compatible` 用于第三方 Anthropic Messages 兼容服务，会按 `{base_url}/v1/messages` 请求；OpenAI-compatible 服务继续使用 `openai` 或其他兼容 provider。
 
 ## HTTP API 文档
 

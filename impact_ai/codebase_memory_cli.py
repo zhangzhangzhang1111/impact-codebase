@@ -3,10 +3,10 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Any, Dict, List, Mapping, Optional, Set, Tuple, Union
 
 
-Runner = Callable[[list[str], str], subprocess.CompletedProcess]
+Runner = Callable[[List[str], str], subprocess.CompletedProcess]
 
 
 class CodebaseMemoryCliError(RuntimeError):
@@ -17,9 +17,9 @@ class CodebaseMemoryCliClient:
     def __init__(
         self,
         binary: str = "codebase-memory-mcp",
-        runner: Runner | None = None,
+        runner: Optional[Runner] = None,
         index_mode: str = "fast",
-        cache_dir: Path | None = None,
+        cache_dir: Optional[Path] = None,
     ):
         self.binary = binary
         self.runner = runner
@@ -31,7 +31,7 @@ class CodebaseMemoryCliClient:
         response = self._call("index_repository", payload)
         return response.get("project") or response.get("name") or project_name
 
-    def trace_two_hop(self, project_id: str, function_name: str, direction: str, depth: int = 2) -> list[str]:
+    def trace_two_hop(self, project_id: str, function_name: str, direction: str, depth: int = 2) -> List[str]:
         try:
             resolved_name = function_name
             response = self._trace_path(project_id, resolved_name, direction, depth)
@@ -76,7 +76,7 @@ class CodebaseMemoryCliClient:
         return _parse_json_from_stdout(completed.stdout)
 
 
-def _run_cli(args: list[str], payload: str, cache_dir: Path | None = None) -> subprocess.CompletedProcess:
+def _run_cli(args: List[str], payload: str, cache_dir: Optional[Path] = None) -> subprocess.CompletedProcess:
     env = os.environ.copy()
     if cache_dir is not None:
         cache_dir.mkdir(parents=True, exist_ok=True)
@@ -84,8 +84,9 @@ def _run_cli(args: list[str], payload: str, cache_dir: Path | None = None) -> su
     return subprocess.run(
         [*args, payload],
         check=False,
-        text=True,
-        capture_output=True,
+        universal_newlines=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         env=env,
     )
 
@@ -117,9 +118,9 @@ def _format_cli_error(tool: str, stdout: str, stderr: str) -> str:
     return ": ".join(details)
 
 
-def _extract_trace_names(response: dict, exclude: str | set[str] | None = None) -> list[str]:
-    names: list[str] = []
-    seen: set[str] = set()
+def _extract_trace_names(response: dict, exclude: Optional[Union[str, Set[str]]] = None) -> List[str]:
+    names: List[str] = []
+    seen: Set[str] = set()
     excluded = {exclude} if isinstance(exclude, str) else (exclude or set())
 
     def add(value: object) -> None:
@@ -157,7 +158,7 @@ def _extract_trace_names(response: dict, exclude: str | set[str] | None = None) 
     return names
 
 
-def _best_function_match(function_name: str, results: list[object]) -> str:
+def _best_function_match(function_name: str, results: List[object]) -> str:
     candidates = [item for item in results if isinstance(item, dict)]
     short_name = function_name.rsplit(".", 1)[-1].rsplit(":", 1)[-1]
 
