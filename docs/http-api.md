@@ -493,6 +493,80 @@ Request:
 
 Return the Chinese dashboard HTML.
 
+## MCP Protocol
+
+### `POST /mcp`
+
+Accepts JSON-RPC 2.0 requests compatible with common MCP clients using HTTP transport. The same MCP tool surface is also available over stdio with:
+
+```bash
+./scripts/run_mcp.sh
+```
+
+Supported MCP methods:
+
+- `initialize`
+- `ping`
+- `tools/list`
+- `tools/call`
+
+Available tools:
+
+- `analyze_code_impact`
+- `list_analysis_jobs`
+- `get_analysis_job`
+- `list_ai_providers`
+
+Initialize request:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "initialize",
+  "params": {
+    "protocolVersion": "2025-03-26",
+    "capabilities": {},
+    "clientInfo": {
+      "name": "example-client",
+      "version": "1.0"
+    }
+  }
+}
+```
+
+List tools:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/list"
+}
+```
+
+Run impact analysis through MCP:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "analyze_code_impact",
+    "arguments": {
+      "git_url": "https://github.com/Kong/kong.git",
+      "branch": "master",
+      "before_commit": "2eb7511",
+      "after_commit": "9ee35fd",
+      "project_name": "Kong-kong",
+      "provider_id": "deepseek",
+      "call_graph_depth": 2
+    }
+  }
+}
+```
+
 ## Polling Pattern
 
 Recommended client flow:

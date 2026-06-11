@@ -16,6 +16,7 @@ from impact_ai.model_config import InMemoryModelConfigStore, ModelConfig
 from impact_ai.models import ImpactAnalysisRequest
 from impact_ai.project_profiles import ProjectProfile, ProjectProfileLoader
 from impact_ai.review_standards import InMemoryReviewStandardStore
+from impact_ai.mcp_server import handle_mcp_message
 
 REQUIRED_ANALYSIS_FIELDS = (
     "git_url",
@@ -179,6 +180,27 @@ class ImpactRequestHandler(BaseHTTPRequestHandler):
         self._send_json(_profile_to_dict(profile))
 
     def do_POST(self) -> None:
+        if self.path == "/mcp":
+            try:
+                payload = self._read_json()
+            except json.JSONDecodeError:
+                self._send_json(
+                    {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}},
+                    status=400,
+                )
+                return
+            response = handle_mcp_message(
+                payload,
+                analyzer=self.server.analyzer,
+                job_store=self.server.job_store,
+            )
+            if response is None:
+                self.send_response(202)
+                self.end_headers()
+                return
+            self._send_json(response)
+            return
+
         if self.path == "/api/model-configs/default":
             try:
                 payload = self._read_json()

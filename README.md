@@ -86,6 +86,31 @@ IMPACT_AI_HOST=0.0.0.0 IMPACT_AI_PORT=8080 ./scripts/run.sh
 
 启动 HTTP 服务时默认会一起启动托管的 `codebase-memory-mcp` MCP/UI 子进程；这些子进程以非阻塞方式启动，关闭 HTTP 服务时也会停止。
 
+## MCP 接入
+
+服务同时提供 MCP 适配，方便 Cursor、Claude Desktop、Codex 等支持 MCP 的 AI 工具调用影响面分析能力。
+
+HTTP 传输：
+
+```text
+POST http://127.0.0.1:8080/mcp
+```
+
+该入口支持 JSON-RPC 2.0 的 `initialize`、`ping`、`tools/list`、`tools/call` 方法。可用工具包括：
+
+- `analyze_code_impact`：同步执行影响面分析，参数与 HTTP `POST /api/analyses` 基本一致。
+- `list_analysis_jobs`：查看历史分析任务。
+- `get_analysis_job`：按任务 ID 查看历史任务详情。
+- `list_ai_providers`：查看支持的 AI provider。
+
+stdio 传输：
+
+```bash
+./scripts/run_mcp.sh
+```
+
+AI 工具的 MCP 配置可将该脚本作为 command。stdio 模式使用 MCP 常见的 `Content-Length` JSON-RPC 帧；启动诊断信息输出到 stderr，不会污染协议 stdout。
+
 ## Release 产物
 
 生成可直接分发的 release 包：
@@ -111,6 +136,7 @@ release 包包含：
 - Linux/macOS 四个平台的 `codebase-memory-mcp` 运行时归档
 - Python 3.6 所需的离线 wheel 依赖
 - 脱敏默认模型配置模板
+- HTTP `/mcp` 与 stdio MCP 启动脚本
 
 解压后运行：
 
