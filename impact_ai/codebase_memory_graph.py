@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Callable, Any, Dict, List, Mapping, Optional, Set, Tuple, Union
 
 from impact_ai.git_diff import GitDiffFunctionExtractor
+from impact_ai.git_diff import _decode_source_bytes
 from impact_ai.knowledge_graph import CallGraph, ChangedFunction, DiffAnalysis
 from impact_ai.models import ImpactAnalysisRequest
 
@@ -245,7 +246,7 @@ def _fallback_inbound_callers(repo_path: Path, function: ChangedFunction) -> Lis
     definition_path = repo_path / function.file_path
     for path in _iter_source_files(repo_path):
         try:
-            lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+            lines = _read_source_lines(path)
         except OSError:
             continue
         relative = _relative_path(repo_path, path)
@@ -289,7 +290,7 @@ def _fallback_outbound_calls(repo_path: Path, function: ChangedFunction) -> List
 def _function_body(repo_path: Path, function: ChangedFunction) -> str:
     path = repo_path / function.file_path
     try:
-        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        lines = _read_source_lines(path)
     except OSError:
         return ""
     start = None
@@ -305,6 +306,10 @@ def _function_body(repo_path: Path, function: ChangedFunction) -> str:
             end = index + 1
             break
     return "\n".join(lines[start:end])
+
+
+def _read_source_lines(path: Path) -> List[str]:
+    return _decode_source_bytes(path.read_bytes(), file_path=str(path)).splitlines()
 
 
 def _iter_source_files(repo_path: Path):

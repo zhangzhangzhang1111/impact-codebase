@@ -9,6 +9,77 @@ from impact_ai.git_diff import GitDiffFunctionExtractor
 
 
 class GitDiffFunctionExtractorTests(unittest.TestCase):
+    def test_extracts_changed_function_when_source_contains_non_utf8_bytes(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            self.run_git(repo, "init")
+            self.run_git(repo, "config", "user.email", "tester@example.com")
+            self.run_git(repo, "config", "user.name", "Test User")
+            source = repo / "legacy.lua"
+            source.write_bytes(
+                b"-- legacy comment: \xc8\n"
+                b"local function changed()\n"
+                b"  return 1\n"
+                b"end\n"
+            )
+            self.run_git(repo, "add", "legacy.lua")
+            self.run_git(repo, "commit", "-m", "initial")
+            before_commit = self.run_git(repo, "rev-parse", "HEAD").stdout.strip()
+
+            source.write_bytes(
+                b"-- legacy comment: \xc8\n"
+                b"local function changed()\n"
+                b"  return 2\n"
+                b"end\n"
+            )
+            self.run_git(repo, "add", "legacy.lua")
+            self.run_git(repo, "commit", "-m", "change legacy lua")
+            after_commit = self.run_git(repo, "rev-parse", "HEAD").stdout.strip()
+
+            functions = GitDiffFunctionExtractor(repo).extract_changed_functions(before_commit, after_commit)
+
+        self.assertEqual(len(functions), 1)
+        self.assertEqual(functions[0].qualified_name, "legacy.changed")
+        self.assertIn("return 2", functions[0].diff_hunk)
+
+    def test_extracts_changed_function_when_source_is_gb18030_encoded(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            self.run_git(repo, "init")
+            self.run_git(repo, "config", "user.email", "tester@example.com")
+            self.run_git(repo, "config", "user.name", "Test User")
+            source = repo / "legacy_gbk.lua"
+            source.write_bytes(
+                (
+                    "-- 中文注释\n"
+                    "local function changed()\n"
+                    "  return 1\n"
+                    "end\n"
+                ).encode("gb18030")
+            )
+            self.run_git(repo, "add", "legacy_gbk.lua")
+            self.run_git(repo, "commit", "-m", "initial")
+            before_commit = self.run_git(repo, "rev-parse", "HEAD").stdout.strip()
+
+            source.write_bytes(
+                (
+                    "-- 中文注释\n"
+                    "local function changed()\n"
+                    "  return 2\n"
+                    "end\n"
+                ).encode("gb18030")
+            )
+            self.run_git(repo, "add", "legacy_gbk.lua")
+            self.run_git(repo, "commit", "-m", "change gbk lua")
+            after_commit = self.run_git(repo, "rev-parse", "HEAD").stdout.strip()
+
+            functions = GitDiffFunctionExtractor(repo).extract_changed_functions(before_commit, after_commit)
+
+        self.assertEqual(len(functions), 1)
+        self.assertEqual(functions[0].qualified_name, "legacy_gbk.changed")
+        self.assertIn("中文注释", functions[0].diff_hunk)
+        self.assertIn("return 2", functions[0].diff_hunk)
+
     def test_extracts_changed_python_function_from_commit_range(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             repo = Path(temp_dir)

@@ -1,7 +1,9 @@
 from typing import Any, Callable, Dict, List, Mapping, Optional, Set, Tuple, Union
 import ast
+import io
 import re
 import subprocess
+import tokenize
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -41,11 +43,11 @@ class GitDiffFunctionExtractor:
         changed_functions: Dict[str, ChangedFunction] = {}
 
         for language in _supported_languages():
-            diff_output = self._git("diff", "--unified=80", before_commit, after_commit, "--", language.diff_glob)
+            diff_output = self._git_text("diff", "--unified=80", before_commit, after_commit, "--", language.diff_glob)
             hunks = _parse_diff_hunks(diff_output)
             for hunk in hunks:
                 if hunk.new_file_path and hunk.changed_lines:
-                    source = self._git("show", f"{after_commit}:{hunk.new_file_path}")
+                    source = self._git_text("show", f"{after_commit}:{hunk.new_file_path}", file_path=hunk.new_file_path)
                     spans = _function_spans(source, hunk.new_file_path)
                     for span in spans:
                         if not hunk.changed_lines.intersection(range(span.start_line, span.end_line + 1)):
@@ -59,12 +61,12 @@ class GitDiffFunctionExtractor:
                             change_type=_change_type_for_new_side(hunk),
                         )
                 if hunk.old_file_path and hunk.old_changed_lines:
-                    old_source = self._git("show", f"{before_commit}:{hunk.old_file_path}")
+                    old_source = self._git_text("show", f"{before_commit}:{hunk.old_file_path}", file_path=hunk.old_file_path)
                     old_spans = _function_spans(old_source, hunk.old_file_path)
                     new_span_names = set()
                     if hunk.new_file_path:
                         try:
-                            new_source = self._git("show", f"{after_commit}:{hunk.new_file_path}")
+                            new_source = self._git_text("show", f"{after_commit}:{hunk.new_file_path}", file_path=hunk.new_file_path)
                             new_span_names = {new_span.qualified_name for new_span in _function_spans(new_source, hunk.new_file_path)}
                         except subprocess.CalledProcessError:
                             new_span_names = set()
@@ -85,16 +87,46 @@ class GitDiffFunctionExtractor:
 
         return list(changed_functions.values())
 
-    def _git(self, *args: str) -> str:
+    def _git_text(self, *args: str, file_path: Optional[str] = None) -> str:
         completed = subprocess.run(
             ["git", *args],
             cwd=self.repo_path,
             check=True,
-            universal_newlines=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        return completed.stdout
+        return _decode_source_bytes(completed.stdout, file_path=file_path)
+
+
+def _decode_source_bytes(data: bytes, file_path: Optional[str] = None) -> str:
+    encodings = _candidate_encodings(data, file_path)
+    for encoding in encodings:
+        try:
+            return data.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+        except LookupError:
+            continue
+    return data.decode("utf-8", errors="replace")
+
+
+def _candidate_encodings(data: bytes, file_path: Optional[str]) -> List[str]:
+    encodings: List[str] = []
+    if file_path and Path(file_path).suffix.lower() == ".py":
+        try:
+            detected, _lines = tokenize.detect_encoding(io.BytesIO(data).readline)
+            encodings.append(detected)
+        except (SyntaxError, UnicodeDecodeError):
+            pass
+    encodings.extend(["utf-8", "gb18030", "big5", "latin-1"])
+
+    unique: List[str] = []
+    for encoding in encodings:
+        normalized = encoding.lower()
+        if normalized in unique:
+            continue
+        unique.append(normalized)
+    return unique
 
 
 def _parse_diff_hunks(diff_output: str) -> List[DiffHunk]:
